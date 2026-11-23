@@ -20,6 +20,15 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: model-cache
+          key: models-${{ hashFiles('scripts/fetch-models.sh') }}
+
+      - name: Fetch and compile models
+        run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
