@@ -51,7 +51,7 @@ struct SettingsView: View {
                             .navigationTitle("Документы")
                     } label: {
                         LabeledContent {
-                            Text(docs.folders.isEmpty ? "нет папок" : "папок: \(docs.folders.count)")
+                            Text(docs.userFolders.isEmpty ? "не подключены" : "папок: \(docs.userFolders.count)")
                         } label: {
                             Label("Документы", systemImage: "doc.text")
                         }
