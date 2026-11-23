@@ -19,10 +19,17 @@ enum PhotoLibrary {
         return PHAsset.fetchAssets(with: options).count
     }
 
-    /// Newest photos first. `limit == 0` means all.
-    static func fetchImageAssets(limit: Int) -> [PHAsset] {
+    /// Newest photos first. `limit == 0` means all. `newerThan` keeps only photos created after that date.
+    static func fetchImageAssets(limit: Int, newerThan: Date? = nil) -> [PHAsset] {
         let options = PHFetchOptions()
-        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        if let newerThan {
+            options.predicate = NSPredicate(
+                format: "mediaType == %d AND creationDate > %@",
+                PHAssetMediaType.image.rawValue, newerThan as NSDate
+            )
+        } else {
+            options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        }
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.fetchLimit = limit
         let result = PHAsset.fetchAssets(with: options)

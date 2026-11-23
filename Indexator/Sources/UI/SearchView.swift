@@ -9,6 +9,7 @@ struct SearchView: View {
     @EnvironmentObject private var engine: SearchEngine
     @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
     @State private var pendingQuery = ""
+    @State private var pendingParsed = ParsedQuery(text: "", dateFilter: nil)
     @State private var translationConfig: TranslationSession.Configuration?
     @State private var selected: SearchHit?
 
@@ -31,6 +32,15 @@ struct SearchView: View {
                                 selected = hit
                             } label: {
                                 PhotoThumbnail(id: hit.id, side: 104)
+                                    .overlay(alignment: .topLeading) {
+                                        if hit.textMatch {
+                                            Image(systemName: "text.viewfinder")
+                                                .font(.caption)
+                                                .padding(3)
+                                                .background(.black.opacity(0.55))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
                                     .overlay(alignment: .bottomTrailing) {
                                         Text(String(format: "%.2f", hit.score))
                                             .font(.caption2.monospacedDigit())
@@ -45,20 +55,22 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Поиск")
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Например: собака на пляже")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Например: собака на пляже летом 2024")
             .onSubmit(of: .search) { submit() }
             .translationTask(translationConfig) { session in
                 let original = pendingQuery
+                let parsed = pendingParsed
                 do {
-                    let response = try await session.translate(original)
-                    await engine.search(modelQuery: response.targetText, shownQuery: original)
+                    let response = try await session.translate(parsed.text)
+                    await engine.search(parsed: parsed, modelText: response.targetText, shownQuery: original)
                 } catch {
                     AppLog.shared.add("Перевод не удался (\(error.localizedDescription)), ищу как есть")
-                    await engine.search(modelQuery: original, shownQuery: original)
+                    await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: original)
                 }
             }
             .sheet(item: $selected) { hit in
                 PhotoDetail(hit: hit)
+                    .environmentObject(engine)
             }
         }
     }
@@ -87,8 +99,10 @@ struct SearchView: View {
     private func submit() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        if text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil {
+        let parsed = QueryParser.parse(text)
+        if parsed.text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil {
             pendingQuery = text
+            pendingParsed = parsed
             if translationConfig == nil {
                 translationConfig = TranslationSession.Configuration(
                     source: Locale.Language(identifier: "ru"),
@@ -98,7 +112,7 @@ struct SearchView: View {
                 translationConfig?.invalidate()
             }
         } else {
-            Task { await engine.search(modelQuery: text, shownQuery: text) }
+            Task { await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: text) }
         }
     }
 }
@@ -128,21 +142,31 @@ struct PhotoThumbnail: View {
 
 struct PhotoDetail: View {
     let hit: SearchHit
+    @EnvironmentObject private var engine: SearchEngine
     @State private var image: UIImage?
+    @State private var info = ""
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    ProgressView()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity, minHeight: 300)
+                    }
+                    if !info.isEmpty {
+                        Text(info)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .padding(.horizontal)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(String(format: "Сходство %.3f", hit.score))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -157,6 +181,17 @@ struct PhotoDetail: View {
             }
             .task {
                 guard let asset = PhotoLibrary.asset(withId: hit.id) else { return }
+                var lines: [String] = []
+                if let date = asset.creationDate {
+                    lines.append(date.formatted(date: .long, time: .shortened))
+                }
+                if let c = asset.location?.coordinate {
+                    lines.append(String(format: "%.4f, %.4f", c.latitude, c.longitude))
+                }
+                if let text = engine.recognizedText(for: hit.id), !text.isEmpty {
+                    lines.append("Текст на фото:\n" + text)
+                }
+                info = lines.joined(separator: "\n")
                 image = await PhotoLibrary.image(for: asset, side: 1600)
             }
         }
