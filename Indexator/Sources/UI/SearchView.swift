@@ -3,14 +3,10 @@
 import Photos
 import SwiftUI
 import UIKit
-import Translation
 
 struct SearchView: View {
     @EnvironmentObject private var engine: SearchEngine
     @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
-    @State private var pendingQuery = ""
-    @State private var pendingParsed = ParsedQuery(text: "", dateFilter: nil)
-    @State private var translationConfig: TranslationSession.Configuration?
     @State private var selected: SearchHit?
     @StateObject private var speech = SpeechInput()
 
@@ -90,19 +86,6 @@ struct SearchView: View {
             .onChange(of: speech.transcript) { _, text in
                 if speech.isRecording && !text.isEmpty { query = text }
             }
-            .translationTask(translationConfig) { session in
-                let original = pendingQuery
-                let parsed = pendingParsed
-                do {
-                    try await session.prepareTranslation()
-                    let response = try await session.translate(parsed.text)
-                    AppLog.shared.add("Перевод: «\(parsed.text)» → «\(response.targetText)»")
-                    await engine.search(parsed: parsed, modelText: response.targetText, shownQuery: original, via: "перевод")
-                } catch {
-                    AppLog.shared.add("Системный перевод не удался: \(String(describing: error))")
-                    await searchWithDictionary(parsed: parsed, original: original)
-                }
-            }
             .sheet(item: $selected) { hit in
                 PhotoDetail(hit: hit)
                     .environmentObject(engine)
@@ -134,48 +117,7 @@ struct SearchView: View {
     private func submit() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let parsed = QueryParser.parse(text)
-        if parsed.text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil {
-            pendingQuery = text
-            pendingParsed = parsed
-            Task {
-                let status = await LanguageAvailability().status(
-                    from: Locale.Language(identifier: "ru"),
-                    to: Locale.Language(identifier: "en")
-                )
-                AppLog.shared.add("Перевод ru→en: \(status == .installed ? "установлен" : status == .supported ? "можно скачать" : "не поддерживается")")
-                if status == .unsupported {
-                    await searchWithDictionary(parsed: parsed, original: text)
-                } else {
-                    startTranslation()
-                }
-            }
-        } else {
-            Task { await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: text) }
-        }
-    }
-
-    private func startTranslation() {
-        if translationConfig == nil {
-            translationConfig = TranslationSession.Configuration(
-                source: Locale.Language(identifier: "ru"),
-                target: Locale.Language(identifier: "en")
-            )
-        } else {
-            translationConfig?.invalidate()
-        }
-    }
-
-    /// Built-in word list, used when the system translator is missing or fails.
-    private func searchWithDictionary(parsed: ParsedQuery, original: String) async {
-        if let english = FallbackDictionary.translate(parsed.text) {
-            AppLog.shared.add("Словарь: «\(parsed.text)» → «\(english)»")
-            await engine.search(parsed: parsed, modelText: english, shownQuery: original, via: "встроенный словарь")
-        } else {
-            AppLog.shared.add("Не смог перевести «\(parsed.text)», ищу только по тексту на фото")
-            await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: original,
-                                via: "не переведено: скачай русский и английский в Настройки → Приложения → Перевод")
-        }
+        Task { await engine.search(text: text) }
     }
 }
 
