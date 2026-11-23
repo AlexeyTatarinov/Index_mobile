@@ -16,10 +16,12 @@ enum DocumentDemo {
         let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Образцы", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        for (name, text) in samples {
+        // Written once, so later launches find nothing new to index.
+        for (name, text) in samples where !FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) {
             try? text.write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
-        writePDF(to: folder.appendingPathComponent("Договор аренды.pdf"))
+        let pdf = folder.appendingPathComponent("Договор аренды.pdf")
+        if !FileManager.default.fileExists(atPath: pdf.path) { writePDF(to: pdf) }
 
         if !engine.folders.contains(where: { $0.name == folder.lastPathComponent }) {
             engine.addFolder(url: folder)
