@@ -59,7 +59,7 @@ struct SearchView: View {
     private var showingResults: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty
             && !submittedQuery.isEmpty
-            && (engine.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty || !mail.results.isEmpty || !video.results.isEmpty)
+            && (engine.lastQueryInfo != nil || docs.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty || !mail.results.isEmpty || !video.results.isEmpty)
     }
 
     private var queryInfo: String? {
@@ -101,8 +101,14 @@ struct SearchView: View {
                             layout: $layout,
                             onOpen: openItem,
                             onAddToAlbum: { albumFor = $0 },
-                            onDeleted: { hidden.insert($0.id) }
+                            onDeleted: { hidden.insert($0.id) },
+                            intent: QueryIntent.detect(submittedQuery),
+                            docsConnected: !docs.folders.isEmpty,
+                            mailConnected: mail.isConnected,
+                            onConnectDocs: { router.openSettings(.documents) },
+                            onConnectMail: { router.openSettings(.mail) }
                         )
+                        .id(submittedQuery)
                     } else {
                         HomeView(onQuery: run(query:))
                     }

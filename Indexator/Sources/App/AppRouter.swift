@@ -12,8 +12,12 @@ final class AppRouter: ObservableObject {
     static let shared = AppRouter()
 
     enum Tab: String { case search, settings }
+    /// Settings screens that other screens can jump to.
+    enum SettingsPage: Hashable { case documents, mail }
 
     @Published var tab: Tab
+    /// Navigation stack of the Settings tab.
+    @Published var settingsPath: [SettingsPage] = []
     /// Incremented to ask the search screen to focus the field.
     @Published private(set) var focusRequest = 0
     /// Incremented to ask the search screen to start listening.
@@ -33,6 +37,11 @@ final class AppRouter: ObservableObject {
         case .search: focusRequest += 1
         case .voice: voiceRequest += 1
         }
+    }
+
+    func openSettings(_ page: SettingsPage) {
+        settingsPath = [page]
+        tab = .settings
     }
 
     func handle(url: URL) {

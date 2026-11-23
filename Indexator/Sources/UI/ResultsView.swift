@@ -17,10 +17,16 @@ struct ResultsView: View {
     let onOpen: (ResultItem) -> Void
     let onAddToAlbum: (ResultItem) -> Void
     let onDeleted: (ResultItem) -> Void
+    var intent = QueryIntent()
+    var docsConnected = true
+    var mailConnected = true
+    var onConnectDocs: () -> Void = {}
+    var onConnectMail: () -> Void = {}
 
     @State private var kindFilter: ResultItem.Kind?
     @State private var onlyText = false
     @State private var showInfo = false
+    @State private var expanded: Set<String> = []
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 2)]
 
@@ -45,7 +51,7 @@ struct ResultsView: View {
                     .onTapGesture { withAnimation { showInfo.toggle() } }
             }
             filters
-            if filtered.isEmpty {
+            if filtered.isEmpty && hints.isEmpty {
                 ContentUnavailableView(
                     "Ничего не нашлось",
                     systemImage: "magnifyingglass",
@@ -86,21 +92,117 @@ struct ResultsView: View {
         }
     }
 
+    /// The groups shown, in order: what the query is after comes first.
+    private enum Group: String { case documents, mail, media }
+
+    private var groupOrder: [Group] {
+        let docs = filtered.filter { $0.kind == .document }
+        let mails = filtered.filter { $0.kind == .mail }
+        var order: [Group] = []
+        if intent.wantsMail { order.append(.mail) }
+        if intent.wantsDocuments { order.append(.documents) }
+        // Exact word hits in files beat a photo guess.
+        if docs.contains(where: \.textMatch) && !order.contains(.documents) { order.append(.documents) }
+        if mails.contains(where: \.textMatch) && !order.contains(.mail) { order.append(.mail) }
+        order.append(.media)
+        for group in [Group.documents, .mail] where !order.contains(group) { order.append(group) }
+        return order
+    }
+
+    /// Cards that explain a missing source when the query wants it.
+    private var hints: [Group] {
+        var list: [Group] = []
+        if intent.wantsDocuments && !docsConnected { list.append(.documents) }
+        if intent.wantsMail && !mailConnected { list.append(.mail) }
+        return list
+    }
+
     @ViewBuilder
     private var content: some View {
-        let photos = filtered.filter(\.isMedia)
-        let others = filtered.filter { !$0.isMedia }
+        ForEach(hints, id: \.self) { group in
+            SourceHint(group: group == .documents ? .document : .mail,
+                       action: group == .documents ? onConnectDocs : onConnectMail)
+                .padding(.horizontal, 16)
+        }
+        if kindFilter != nil {
+            groupView(.documents, limit: nil)
+            groupView(.mail, limit: nil)
+            groupView(.media, limit: nil)
+        } else {
+            let order = groupOrder
+            ForEach(order.indices, id: \.self) { index in
+                // Only the first group is shown in full; the rest start folded.
+                groupView(order[index], limit: index == 0 ? nil : (order[index] == .media ? 9 : 3), showHeader: true)
+            }
+        }
+    }
 
-        if !others.isEmpty {
-            LazyVStack(spacing: 10) {
-                ForEach(others) { item in
-                    Button { onOpen(item) } label: { TextResultCard(item: item) }
-                        .buttonStyle(.plain)
+    @ViewBuilder
+    private func groupView(_ group: Group, limit: Int?, showHeader: Bool = false) -> some View {
+        let all: [ResultItem] = {
+            switch group {
+            case .documents: return filtered.filter { $0.kind == .document }
+            case .mail: return filtered.filter { $0.kind == .mail }
+            case .media: return filtered.filter(\.isMedia)
+            }
+        }()
+        let isExpanded = expanded.contains(group.rawValue)
+        let shown = (limit == nil || isExpanded) ? all : Array(all.prefix(limit!))
+        if !all.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                if showHeader && groupOrder.filter({ g in hasItems(g) }).count > 1 {
+                    HStack {
+                        Text(title(group))
+                            .font(.headline)
+                        Text("\(all.count)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if shown.count < all.count || (isExpanded && limit != nil) {
+                            Button(isExpanded ? "Свернуть" : "Все \(all.count)") {
+                                withAnimation {
+                                    if isExpanded { expanded.remove(group.rawValue) } else { expanded.insert(group.rawValue) }
+                                }
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                }
+                if group == .media {
+                    mediaView(shown)
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(shown) { item in
+                            Button { onOpen(item) } label: { TextResultCard(item: item) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
                 }
             }
-            .padding(.horizontal, 16)
         }
+    }
 
+    private func hasItems(_ group: Group) -> Bool {
+        switch group {
+        case .documents: return filtered.contains { $0.kind == .document }
+        case .mail: return filtered.contains { $0.kind == .mail }
+        case .media: return filtered.contains(where: \.isMedia)
+        }
+    }
+
+    private func title(_ group: Group) -> String {
+        switch group {
+        case .documents: return "Документы"
+        case .mail: return "Почта"
+        case .media: return "Фото и видео"
+        }
+    }
+
+    @ViewBuilder
+    private func mediaView(_ photos: [ResultItem]) -> some View {
         if !photos.isEmpty {
             if layout == .grid {
                 LazyVGrid(columns: columns, spacing: 2) {
@@ -142,6 +244,35 @@ struct ResultsView: View {
                 .padding(.horizontal, 16)
             }
         }
+    }
+}
+
+/// Explains that a source the query asks for is not connected yet.
+struct SourceHint: View {
+    let group: ResultItem.Kind
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: group == .mail ? "envelope.badge" : "folder.badge.plus")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 40)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(group == .mail ? "Почта не подключена" : "Документы ещё не подключены")
+                    .font(.subheadline.weight(.semibold))
+                Text(group == .mail
+                     ? "Похоже, ты ищешь письмо. Подключи почту, и письма будут находиться здесь же."
+                     : "Похоже, ты ищешь файл. Выбери папки с документами (например, «Загрузки» или весь iCloud Drive), и я их проиндексирую.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button(group == .mail ? "Подключить почту" : "Выбрать папки", action: action)
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .card()
     }
 }
 

@@ -60,4 +60,5 @@ shot 9-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"
 shot 10-mail-search 20 -uiTab search -mailDemo YES -autoQuery "билет на поезд" -autoMailQuery "билет на поезд" -ui.resultLayout cards
 shot 11-video-search 25 -uiTab search -autoQuery "собака" -ui.resultLayout cards
 shot 12-video-player 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind video
+shot 11-resume-no-docs 25 -uiTab search -autoQuery "моё резюме"
 ls -la "$OUT"
