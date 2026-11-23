@@ -1,35 +1,27 @@
 #!/usr/bin/env bash
-# Downloads MobileCLIP Core ML towers and the CLIP BPE vocabulary, compiles the
-# models to .mlmodelc and puts everything into the app's Models folder.
-# Usage: scripts/fetch-models.sh <cache dir> <output dir>   (macOS with Xcode)
+# Builds the multilingual CLIP Core ML towers (once, cached), compiles them to
+# .mlmodelc and puts them with the tokenizer vocabulary into the app's Models folder.
+# Usage: scripts/fetch-models.sh <cache dir> <output dir>   (macOS with Xcode and python3)
 set -euo pipefail
 
 CACHE="${1:?cache dir}"
 OUT="${2:?output dir}"
-VARIANT="mobileclip_s0"
-HF="https://huggingface.co/apple/coreml-mobileclip/resolve/main"
-VOCAB_URL="https://openaipublic.azureedge.net/clip/bpe_simple_vocab_16e6.txt.gz"
+VARIANT="mclip_b32"
+HERE="$(cd "$(dirname "$0")" && pwd)"
 
 mkdir -p "$CACHE" "$OUT"
 
-fetch() { # url dest
-  if [[ ! -s "$2" ]]; then
-    mkdir -p "$(dirname "$2")"
-    echo "Downloading $1"
-    curl -fsSL --retry 3 "$1" -o "$2"
-  fi
-}
+if [[ ! -d "$CACHE/${VARIANT}_image.mlpackage" || ! -d "$CACHE/${VARIANT}_text.mlpackage" || ! -s "$CACHE/${VARIANT}_vocab.txt" ]]; then
+  python3 -m venv "$CACHE/venv"
+  "$CACHE/venv/bin/pip" install -q -r "$HERE/requirements-convert.txt"
+  "$CACHE/venv/bin/python" "$HERE/convert-mclip.py" "$CACHE"
+  rm -rf "$CACHE/venv"
+fi
 
 for tower in image text; do
-  pkg="${VARIANT}_${tower}.mlpackage"
-  for f in Manifest.json Data/com.apple.CoreML/model.mlmodel Data/com.apple.CoreML/weights/weight.bin; do
-    fetch "$HF/$pkg/$f" "$CACHE/$pkg/$f"
-  done
   rm -rf "$OUT/${VARIANT}_${tower}.mlmodelc"
-  xcrun coremlcompiler compile "$CACHE/$pkg" "$OUT"
+  xcrun coremlcompiler compile "$CACHE/${VARIANT}_${tower}.mlpackage" "$OUT"
 done
-
-fetch "$VOCAB_URL" "$CACHE/bpe_simple_vocab_16e6.txt.gz"
-gunzip -c "$CACHE/bpe_simple_vocab_16e6.txt.gz" > "$OUT/bpe_simple_vocab_16e6.txt"
+cp "$CACHE/${VARIANT}_vocab.txt" "$CACHE/${VARIANT}_tokens.json" "$OUT/"
 
 du -sh "$OUT"/*

@@ -27,7 +27,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: model-cache
-          key: models-${{ hashFiles('scripts/fetch-models.sh') }}
+          key: models-${{ hashFiles('scripts/fetch-models.sh', 'scripts/convert-mclip.py', 'scripts/requirements-convert.txt') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Fetch and compile models
         run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models
@@ -83,7 +87,7 @@ jobs:
 
   screenshots:
     runs-on: macos-15
-    timeout-minutes: 55
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -91,7 +95,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: model-cache
-          key: models-${{ hashFiles('scripts/fetch-models.sh') }}
+          key: models-${{ hashFiles('scripts/fetch-models.sh', 'scripts/convert-mclip.py', 'scripts/requirements-convert.txt') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Fetch and compile models
         run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models

@@ -43,10 +43,10 @@ shot() { # name, wait seconds, launch args...
 
 shot 1-settings-indexing 60 -uiTab settings -autoIndex YES
 shot 2-home 15 -uiTab search
-shot 3-search-grid 25 -uiTab search -autoQuery "a dog"
-shot 4-search-cards 25 -uiTab search -autoQuery "mountains and a lake" -ui.resultLayout cards
-shot 5-detail 30 -uiTab search -autoQuery "a dog" -autoOpenFirst YES
-shot 6-search-date 25 -uiTab search -autoQuery "a dog 2026" -ui.resultLayout cards
+shot 3-search-grid 25 -uiTab search -autoQuery "собака"
+shot 4-search-cards 25 -uiTab search -autoQuery "горы и озеро" -ui.resultLayout cards
+shot 5-detail 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES
+shot 6-search-date 25 -uiTab search -autoQuery "собака 2026" -ui.resultLayout cards
 shot 7-settings 15 -uiTab settings
 shot 8-docs-search 30 -uiTab search -docsDemo YES -autoQuery "как вернуть налог за квартиру" -ui.resultLayout cards
 shot 9-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"

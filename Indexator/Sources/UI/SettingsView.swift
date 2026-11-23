@@ -411,7 +411,7 @@ struct DiagnosticsView: View {
         switch engine.modelState {
         case .notLoaded: return "не загружена"
         case .loading: return "загружается"
-        case .ready: return MobileCLIP.variant
+        case .ready: return ClipModel.variant
         case .failed(let message): return "ошибка: \(message)"
         }
     }
