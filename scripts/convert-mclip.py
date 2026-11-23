@@ -77,13 +77,9 @@ text_ml = ct.convert(
     convert_to="mlprogram",
     minimum_deployment_target=ct.target.iOS17,
 )
-# The word embedding table is most of the weights: store weights as int8.
-text_ml = ct.optimize.coreml.linear_quantize_weights(
-    text_ml,
-    ct.optimize.coreml.OptimizationConfig(
-        global_config=ct.optimize.coreml.OpLinearQuantizerConfig(mode="linear_symmetric")
-    ),
-)
+# Weights stay float16. An int8 version crashed on iPhone: when Core ML ran the
+# text tower on the GPU, MPSGraph tried to unpack the whole 92M-entry embedding
+# table at compile time and aborted with an allocation error.
 text_ml.short_description = "Multilingual CLIP text encoder (clip-ViT-B-32-multilingual-v1)"
 text_ml.save(os.path.join(OUT, f"{VARIANT}_text.mlpackage"))
 
