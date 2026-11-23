@@ -84,6 +84,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 22) {
             header
             statusCard
+            DocumentOnboardingCard()
             if !settings.recentQueries.isEmpty {
                 section("Недавние", trailing: AnyView(
                     Button("Очистить") { settings.clearRecent() }
