@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Main screen: a quiet home with the index status and example queries, the
+// search bar with a voice button at the bottom, and results as a grid or cards.
 
 import Photos
 import SwiftUI
@@ -7,88 +10,115 @@ import Translation
 
 struct SearchView: View {
     @EnvironmentObject private var engine: SearchEngine
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var router: AppRouter
     @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
     @State private var pendingQuery = ""
     @State private var pendingParsed = ParsedQuery(text: "", dateFilter: nil)
     @State private var translationConfig: TranslationSession.Configuration?
-    @State private var selected: SearchHit?
     @StateObject private var speech = SpeechInput()
+    @FocusState private var searchFocused: Bool
+    @AppStorage("ui.resultLayout") private var layout: ResultLayout = .grid
+    @State private var opened: ResultItem?
+    @State private var albumFor: ResultItem?
+    @State private var hidden: Set<String> = []
+    @State private var didAutoOpen = false
+    @State private var submittedQuery = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
 
-    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 2)]
+    /// All results, mapped to the shared card model, minus excluded and deleted photos.
+    private var items: [ResultItem] {
+        engine.results
+            .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
+            .map(ResultItem.init(photo:))
+    }
+
+    private var showingResults: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty
+            && !submittedQuery.isEmpty
+            && (engine.lastQueryInfo != nil || !engine.results.isEmpty)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     status
-                    if speech.isRecording {
-                        Label(speech.transcript.isEmpty ? "Слушаю… Нажми микрофон ещё раз, чтобы искать." : speech.transcript,
-                              systemImage: "waveform")
-                            .font(.callout)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal)
-                    }
                     if let error = speech.error {
-                        Text(error)
+                        Label(error, systemImage: "mic.slash")
                             .font(.callout)
                             .foregroundStyle(.red)
                             .padding(.horizontal)
                     }
-                    if let info = engine.lastQueryInfo {
-                        Text(info)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal)
-                    }
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(engine.results) { hit in
-                            Button {
-                                selected = hit
-                            } label: {
-                                PhotoThumbnail(id: hit.id, side: 104)
-                                    .overlay(alignment: .topLeading) {
-                                        if hit.textMatch {
-                                            Image(systemName: "text.viewfinder")
-                                                .font(.caption)
-                                                .padding(3)
-                                                .background(.black.opacity(0.55))
-                                                .foregroundStyle(.white)
-                                        }
-                                    }
-                                    .overlay(alignment: .bottomTrailing) {
-                                        Text(String(format: "%.2f", hit.score))
-                                            .font(.caption2.monospacedDigit())
-                                            .padding(3)
-                                            .background(.black.opacity(0.55))
-                                            .foregroundStyle(.white)
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    if showingResults {
+                        ResultsView(
+                            items: items,
+                            info: engine.lastQueryInfo,
+                            layout: $layout,
+                            onOpen: { opened = $0 },
+                            onAddToAlbum: { albumFor = $0 },
+                            onDeleted: { hidden.insert($0.id) }
+                        )
+                    } else {
+                        HomeView(onQuery: run(query:))
                     }
                 }
+                .padding(.bottom, 12)
             }
-            .navigationTitle("Поиск")
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Например: собака на пляже летом 2024")
-            .onSubmit(of: .search) { submit() }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        speech.toggle { text in
-                            query = text
-                            submit()
-                        }
-                    } label: {
-                        Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic.fill")
-                            .font(.title2)
-                            .foregroundStyle(speech.isRecording ? Color.red : Color.accentColor)
-                            .symbolEffect(.pulse, isActive: speech.isRecording)
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 8) {
+                    if speech.isRecording {
+                        ListeningBanner(transcript: speech.transcript)
                     }
-                    .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Голосовой поиск")
+                    SearchBar(
+                        text: $query,
+                        focus: $searchFocused,
+                        isRecording: speech.isRecording,
+                        onSubmit: { run(query: query) },
+                        onMic: toggleVoice
+                    )
+                }
+                .background(alignment: .bottom) {
+                    LinearGradient(
+                        colors: [Color(.systemBackground).opacity(0), Color(.systemBackground).opacity(0.9)],
+                        startPoint: .top, endPoint: .center
+                    )
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                }
+                .animation(.snappy, value: speech.isRecording)
+            }
+            .navigationTitle(showingResults ? submittedQuery : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(showingResults ? .visible : .hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        query = ""
+                        submittedQuery = ""
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .accessibilityLabel("На главную")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Picker("Вид", selection: $layout) {
+                        Image(systemName: "square.grid.3x3").tag(ResultLayout.grid)
+                        Image(systemName: "rectangle.grid.1x2").tag(ResultLayout.cards)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 96)
                 }
             }
             .onChange(of: speech.transcript) { _, text in
                 if speech.isRecording && !text.isEmpty { query = text }
+            }
+            .onChange(of: query) { _, text in
+                if text.isEmpty { submittedQuery = "" }
+            }
+            .onChange(of: router.focusRequest) { _, _ in searchFocused = true }
+            .onChange(of: router.voiceRequest) { _, _ in
+                if !speech.isRecording { toggleVoice() }
             }
             .translationTask(translationConfig) { session in
                 let original = pendingQuery
@@ -103,9 +133,23 @@ struct SearchView: View {
                     await searchWithDictionary(parsed: parsed, original: original)
                 }
             }
-            .sheet(item: $selected) { hit in
-                PhotoDetail(hit: hit)
-                    .environmentObject(engine)
+            .sheet(item: $opened) { item in
+                PhotoPagerView(
+                    items: items.filter { $0.kind == item.kind },
+                    current: item.id,
+                    onDeleted: { hidden.insert($0.id) }
+                )
+                .environmentObject(engine)
+            }
+            .sheet(item: $albumFor) { item in
+                AlbumPicker(photoId: item.id)
+            }
+            .onChange(of: engine.results) { _, _ in
+                // CI screenshots: `-autoOpenFirst YES` opens the first result once.
+                if UserDefaults.standard.bool(forKey: "autoOpenFirst"), !didAutoOpen, let first = items.first {
+                    didAutoOpen = true
+                    opened = first
+                }
             }
         }
     }
@@ -113,22 +157,32 @@ struct SearchView: View {
     @ViewBuilder
     private var status: some View {
         switch engine.modelState {
-        case .ready where engine.indexedCount == 0:
-            hint("Индекс пуст. Открой вкладку «Индекс» и запусти индексацию.")
-        case .ready:
-            EmptyView()
         case .loading, .notLoaded:
-            hint("Загружаю модель…")
-        case .failed(let message):
-            hint("Модель не загрузилась: \(message)")
+            Label("Загружаю модель…", systemImage: "hourglass")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+        default:
+            EmptyView()
         }
     }
 
-    private func hint(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding()
+    /// Entry point for typed, tapped and spoken queries.
+    private func run(query text: String) {
+        query = text
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        searchFocused = false
+        submittedQuery = trimmed
+        settings.remember(query: trimmed)
+        submit()
+    }
+
+    private func toggleVoice() {
+        searchFocused = false
+        speech.toggle { text in
+            run(query: text)
+        }
     }
 
     private func submit() {
@@ -175,87 +229,6 @@ struct SearchView: View {
             AppLog.shared.add("Не смог перевести «\(parsed.text)», ищу только по тексту на фото")
             await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: original,
                                 via: "не переведено: скачай русский и английский в Настройки → Приложения → Перевод")
-        }
-    }
-}
-
-struct PhotoThumbnail: View {
-    let id: String
-    let side: CGFloat
-    @State private var image: UIImage?
-
-    var body: some View {
-        Color.gray.opacity(0.15)
-            .aspectRatio(1, contentMode: .fill)
-            .overlay {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
-            }
-            .clipped()
-            .task(id: id) {
-                guard let asset = PhotoLibrary.asset(withId: id) else { return }
-                image = await PhotoLibrary.image(for: asset, side: side * 2)
-            }
-    }
-}
-
-struct PhotoDetail: View {
-    let hit: SearchHit
-    @EnvironmentObject private var engine: SearchEngine
-    @State private var image: UIImage?
-    @State private var info = ""
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity, minHeight: 300)
-                    }
-                    if !info.isEmpty {
-                        Text(info)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .padding(.horizontal)
-                    }
-                }
-            }
-            .navigationTitle(String(format: "Сходство %.3f", hit.score))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
-                if let image {
-                    ToolbarItem(placement: .primaryAction) {
-                        ShareLink(item: Image(uiImage: image), preview: SharePreview("Фото", image: Image(uiImage: image)))
-                    }
-                }
-            }
-            .task {
-                guard let asset = PhotoLibrary.asset(withId: hit.id) else { return }
-                var lines: [String] = []
-                if let date = asset.creationDate {
-                    lines.append(date.formatted(date: .long, time: .shortened))
-                }
-                if let c = asset.location?.coordinate {
-                    lines.append(String(format: "%.4f, %.4f", c.latitude, c.longitude))
-                }
-                if let text = engine.recognizedText(for: hit.id), !text.isEmpty {
-                    lines.append("Текст на фото:\n" + text)
-                }
-                info = lines.joined(separator: "\n")
-                image = await PhotoLibrary.image(for: asset, side: 1600)
-            }
         }
     }
 }

@@ -41,9 +41,11 @@ shot() { # name, wait seconds, launch args...
   echo "Captured $name"
 }
 
-shot 1-index 60 -uiTab index -autoIndex YES
-shot 2-search 25 -uiTab search -autoQuery "a dog"
-shot 3-search-mountains 25 -uiTab search -autoQuery "mountains and a lake"
-shot 4-search-date 25 -uiTab search -autoQuery "a dog 2026"
-shot 5-log 10 -uiTab log -autoQuery "a dog"
+shot 1-settings-indexing 60 -uiTab settings -autoIndex YES
+shot 2-home 15 -uiTab search
+shot 3-search-grid 25 -uiTab search -autoQuery "a dog"
+shot 4-search-cards 25 -uiTab search -autoQuery "mountains and a lake" -ui.resultLayout cards
+shot 5-detail 30 -uiTab search -autoQuery "a dog" -autoOpenFirst YES
+shot 6-search-date 25 -uiTab search -autoQuery "a dog 2026" -ui.resultLayout cards
+shot 7-settings 15 -uiTab settings
 ls -la "$OUT"

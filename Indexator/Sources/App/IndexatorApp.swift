@@ -7,9 +7,9 @@ import SwiftUI
 @main
 struct IndexatorApp: App {
     @ObservedObject private var engine = SearchEngine.shared
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var router = AppRouter.shared
     @Environment(\.scenePhase) private var scenePhase
-    // Launch arguments like `-uiTab index` land in UserDefaults; used by CI screenshots.
-    @State private var tab = UserDefaults.standard.string(forKey: "uiTab") ?? "search"
 
     init() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: SearchEngine.backgroundTaskId, using: nil) { task in
@@ -31,25 +31,35 @@ struct IndexatorApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView(selection: $tab) {
+            TabView(selection: $router.tab) {
                 SearchView()
                     .tabItem { Label("Поиск", systemImage: "magnifyingglass") }
-                    .tag("search")
-                IndexView()
-                    .tabItem { Label("Индекс", systemImage: "square.stack.3d.up") }
-                    .tag("index")
-                LogView()
-                    .tabItem { Label("Журнал", systemImage: "doc.text") }
-                    .tag("log")
+                    .tag(AppRouter.Tab.search)
+                SettingsView()
+                    .tabItem { Label("Настройки", systemImage: "gearshape") }
+                    .tag(AppRouter.Tab.settings)
             }
             .environmentObject(engine)
-            .task { await engine.prepare() }
+            .environmentObject(settings)
+            .environmentObject(router)
+            .task {
+                await engine.prepare()
+                settings.seedDefaultExclusionsIfNeeded()
+            }
+            .onOpenURL { router.handle(url: $0) }
+            .onReceive(NotificationCenter.default.publisher(for: LaunchAction.notification)) { _ in
+                router.consumePendingLaunch()
+            }
+            .onChange(of: engine.isIndexing) { wasIndexing, isIndexing in
+                if wasIndexing && !isIndexing { settings.markIndexed() }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
                 SearchEngine.scheduleBackgroundIndexing()
             case .active:
+                router.consumePendingLaunch()
                 engine.indexNewPhotos()
             default:
                 break

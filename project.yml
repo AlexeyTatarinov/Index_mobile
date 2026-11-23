@@ -14,6 +14,8 @@ targets:
     platform: iOS
     sources:
       - Indexator/Sources
+      - Shared
+      - Indexator/Assets.xcassets
       # Downloaded and compiled in CI (see .github/workflows/build.yml), kept as a folder reference.
       - path: Indexator/Resources/Models
         type: folder
@@ -28,16 +30,43 @@ targets:
         NSMicrophoneUsageDescription: Микрофон нужен для голосового поиска. Запись не сохраняется.
         NSSpeechRecognitionUsageDescription: Распознавание речи превращает голосовой запрос в текст, по возможности прямо на телефоне.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.alexeytatarinov.indexator
+            CFBundleURLSchemes: [indexator]
         UIBackgroundModes: [processing]
         BGTaskSchedulerPermittedIdentifiers: [io.github.alexeytatarinov.indexator.index]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: IndexatorWidget
+        embed: true
     scheme:
       testTargets:
         - IndexatorTests
         - IndexatorUITests
+  IndexatorWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget/Sources
+      - Shared
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Indexator
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator.widget
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
   IndexatorTests:
     type: bundle.unit-test
     platform: iOS
