@@ -312,7 +312,9 @@ final class SearchEngine: ObservableObject {
             // does not get padded with unrelated photos.
             let candidates = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }
             let best = candidates.first.map(score) ?? 0
-            let cutoff = max(best - 0.05, best * 0.82)
+            // Below about 0.23 ViT-B/32 is guessing (in tests an irrelevant query like
+            // "билет на поезд" topped out at 0.22), so such photos are not shown at all.
+            let cutoff = max(best - 0.05, best * 0.82, Self.minimumScore)
             let clipRanked = Array(candidates.prefix { score($0) >= cutoff }.prefix(400))
             let words = (parsed.text + " " + semantic).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
             let textRanked = database.textMatches(words: words).filter(isAllowed)
@@ -337,6 +339,8 @@ final class SearchEngine: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    nonisolated static let minimumScore: Float = 0.23
 
     nonisolated static func prompt(for text: String) -> String {
         // The multilingual text tower takes other languages as they are.
