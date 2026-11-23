@@ -11,6 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject private var engine: SearchEngine
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var docs = DocumentEngine.shared
+    @ObservedObject private var mail = MailEngine.shared
     @AppStorage("ui.indexLimit") private var limit = 0
     @State private var confirmReset = false
 
@@ -51,10 +52,11 @@ struct SettingsView: View {
                         }
                     }
                     NavigationLink {
-                        MailPlaceholderView()
+                        MailSettingsView()
+                            .navigationTitle("Почта")
                     } label: {
                         LabeledContent {
-                            Text("не подключена")
+                            Text(mail.isConnected ? "Gmail, писем: \(mail.storedCount)" : "не подключена")
                         } label: {
                             Label("Почта", systemImage: "envelope")
                         }

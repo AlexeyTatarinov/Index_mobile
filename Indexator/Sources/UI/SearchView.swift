@@ -13,6 +13,8 @@ struct SearchView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var router: AppRouter
     @ObservedObject private var docs = DocumentEngine.shared
+    @ObservedObject private var mail = MailEngine.shared
+    @State private var openedMail: ResultItem?
     @State private var previewURL: URL?
     @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
     @StateObject private var speech = SpeechInput()
@@ -30,17 +32,19 @@ struct SearchView: View {
         let photos = engine.results
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
             .map(ResultItem.init(photo:))
-        return documents + photos
+        let emails = mail.results.map(ResultItem.init(mail:))
+        return documents + emails + photos
     }
 
     private var showingResults: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty
             && !submittedQuery.isEmpty
-            && (engine.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty)
+            && (engine.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty || !mail.results.isEmpty)
     }
 
     private var queryInfo: String? {
-        let parts = [engine.lastQueryInfo, docs.lastQueryInfo.map { "документы: \($0)" }].compactMap { $0 }
+        let parts = [engine.lastQueryInfo, docs.lastQueryInfo.map { "документы: \($0)" },
+                     mail.results.isEmpty ? nil : mail.lastQueryInfo.map { "почта: \($0)" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -53,7 +57,7 @@ struct SearchView: View {
                 previewURL = docs.withAccess(to: hit) { $0 }
             }
         case .mail:
-            break
+            openedMail = item
         }
     }
 
@@ -151,6 +155,16 @@ struct SearchView: View {
             .sheet(item: $albumFor) { item in
                 AlbumPicker(photoId: item.id)
             }
+            .sheet(item: $openedMail) { item in
+                NavigationStack {
+                    MailDetailView(messageId: item.id)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Готово") { openedMail = nil }
+                            }
+                        }
+                }
+            }
             .onChange(of: engine.results) { _, _ in
                 // CI screenshots: `-autoOpenFirst YES` opens the first result once.
                 if UserDefaults.standard.bool(forKey: "autoOpenFirst"), !didAutoOpen, let first = items.first {
@@ -203,6 +217,7 @@ struct SearchView: View {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         Task { await DocumentEngine.shared.search(text) }
+        if mail.consentGiven { Task { await mail.search(text) } }
         Task { await engine.search(text: text) }
     }
 }
