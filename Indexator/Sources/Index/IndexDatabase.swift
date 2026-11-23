@@ -40,6 +40,8 @@ final class IndexDatabase {
     private(set) var vectors: [Float] = []
     private(set) var dimension = 0
     private var rowOf: [String: Int] = [:]
+    /// Classifier labels per photo id, strongest first.
+    private(set) var labelsById: [String: [(String, Float)]] = [:]
 
     let model: String
     var count: Int { ids.count }
@@ -76,7 +78,10 @@ final class IndexDatabase {
                 id UNINDEXED, text, tokenize = 'unicode61 remove_diacritics 2'
             )
             """)
+        // Scene labels from Apple's classifier; "" means "tried, nothing found".
+        try exec("CREATE TABLE IF NOT EXISTS photo_labels(id TEXT PRIMARY KEY, labels TEXT NOT NULL)")
         try loadAll()
+        loadLabels()
         removeLegacyFiles(in: directory)
     }
 
@@ -85,6 +90,7 @@ final class IndexDatabase {
     }
 
     func contains(_ id: String) -> Bool { rowOf[id] != nil }
+    func row(of id: String) -> Int? { rowOf[id] }
 
     // MARK: - Writing
 
@@ -126,7 +132,9 @@ final class IndexDatabase {
         guard !present.isEmpty else { return }
         try? exec("SAVEPOINT remove_photos")
         for id in present {
-            for sql in ["DELETE FROM photos WHERE id = ?", "DELETE FROM photo_text WHERE id = ?"] {
+            labelsById[id] = nil
+            for sql in ["DELETE FROM photos WHERE id = ?", "DELETE FROM photo_text WHERE id = ?",
+                        "DELETE FROM photo_labels WHERE id = ?"] {
                 try? withStatement(sql) { stmt in
                     sqlite3_bind_text(stmt, 1, id, -1, SQLITE_TRANSIENT)
                     try step(stmt)
@@ -154,11 +162,45 @@ final class IndexDatabase {
     func reset() {
         try? exec("DELETE FROM photos")
         try? exec("DELETE FROM photo_text")
+        try? exec("DELETE FROM photo_labels")
+        labelsById = [:]
         ids = []; created = []; months = []; latitudes = []; longitudes = []
         vectors = []; dimension = 0; rowOf = [:]
     }
 
     // MARK: - Reading
+
+    // MARK: - Labels
+
+    func hasLabels(_ id: String) -> Bool { labelsById[id] != nil }
+
+    /// Ids in the index that were never run through the classifier.
+    var idsWithoutLabels: [String] { ids.filter { labelsById[$0] == nil } }
+
+    func setLabels(_ labels: [(String, Float)], for id: String) {
+        let encoded = labels.map { "\($0.0):\(String(format: "%.3f", $0.1))" }.joined(separator: ";")
+        try? withStatement("INSERT OR REPLACE INTO photo_labels(id, labels) VALUES(?, ?)") { stmt in
+            sqlite3_bind_text(stmt, 1, id, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, encoded, -1, SQLITE_TRANSIENT)
+            try step(stmt)
+        }
+        labelsById[id] = labels
+    }
+
+    private func loadLabels() {
+        try? withStatement("SELECT id, labels FROM photo_labels") { stmt in
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let c = sqlite3_column_text(stmt, 0) else { continue }
+                let id = String(cString: c)
+                let raw = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                labelsById[id] = raw.split(separator: ";").compactMap { part in
+                    let kv = part.split(separator: ":")
+                    guard kv.count == 2, let v = Float(kv[1]) else { return nil }
+                    return (String(kv[0]), v)
+                }
+            }
+        }
+    }
 
     func text(for id: String) -> String? {
         var result: String?

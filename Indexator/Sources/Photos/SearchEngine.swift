@@ -93,6 +93,8 @@ final class SearchEngine: ObservableObject {
             libraryCount = PhotoLibrary.imageCount()
         }
         await model
+        // Load the offline city table off the main thread before the first search needs it.
+        Task.detached(priority: .utility) { _ = PlaceIndex.shared.count }
         await runAutomation()
         if hasPhotoAccess {
             BackgroundIndexer.shared.startObservingPhotos()
@@ -230,10 +232,34 @@ final class SearchEngine: ObservableObject {
         let maxCount = limit ?? UserDefaults.standard.integer(forKey: "ui.indexLimit")
         let wanted = maxCount > 0 ? Array(assets.prefix(maxCount)) : assets
         let outcome = await runIndexing(assets: wanted, reason: reason, deadline: deadline)
+        if !outcome.cancelled { await labelMissingPhotos(deadline: deadline) }
         result.added = outcome.added
         result.remaining = outcome.remaining
         result.isCancelled = outcome.cancelled
         return result
+    }
+
+    /// Photos indexed before scene labels existed get them here, without redoing CLIP or OCR.
+    private func labelMissingPhotos(deadline: Date?) async {
+        guard let database else { return }
+        let missing = database.idsWithoutLabels
+        guard !missing.isEmpty else { return }
+        log.add("Метки сцен: \(missing.count) фото без меток")
+        var done = 0
+        let start = CFAbsoluteTimeGetCurrent()
+        for id in missing {
+            if Task.isCancelled { break }
+            if let deadline, Date() >= deadline { break }
+            guard let asset = PhotoLibrary.asset(withId: id),
+                  let image = await PhotoLibrary.cgImage(for: asset, side: 360) else {
+                database.setLabels([], for: id)
+                continue
+            }
+            let labels = (try? await onWorker { autoreleasepool { ImageLabeler.labels(for: image) } }) ?? []
+            database.setLabels(labels, for: id)
+            done += 1
+        }
+        log.add(String(format: "Метки сцен: готово %d за %.0f с", done, CFAbsoluteTimeGetCurrent() - start))
     }
 
     private struct IndexingOutcome {
@@ -271,7 +297,7 @@ final class SearchEngine: ObservableObject {
                 continue
             }
             do {
-                let (vector, text, tClip, tOCR) = try await onWorker { () throws -> ([Float], String, Double, Double) in
+                let (vector, text, labels, tClip, tOCR) = try await onWorker { () throws -> ([Float], String, [(String, Float)], Double, Double) in
                     // Drain Core ML and Vision temporaries after every photo, so memory stays flat
                     // through tens of thousands of photos (matters most in the background).
                     try autoreleasepool {
@@ -279,7 +305,8 @@ final class SearchEngine: ObservableObject {
                         let v = try clip.embed(image: image)
                         let t1 = CFAbsoluteTimeGetCurrent()
                         let s = useOCR ? TextRecognizer.recognize(in: image) : ""
-                        return (v, s, t1 - t0, CFAbsoluteTimeGetCurrent() - t1)
+                        let l = ImageLabeler.labels(for: image)
+                        return (v, s, l, t1 - t0, CFAbsoluteTimeGetCurrent() - t1)
                     }
                 }
                 clipSeconds += tClip
@@ -295,6 +322,7 @@ final class SearchEngine: ObservableObject {
                     vector: vector,
                     text: text
                 ))
+                database.setLabels(labels, for: asset.localIdentifier)
             } catch {
                 failures += 1
                 if failures <= 5 {
@@ -360,6 +388,24 @@ final class SearchEngine: ObservableObject {
         guard let clip, let database else { return }
         let start = CFAbsoluteTimeGetCurrent()
 
+        // A city in the query becomes a GPS filter, and its words leave the semantic part:
+        // «архитектура Валенсии» = photos taken in Valencia that look like architecture.
+        var modelText = modelText
+        var placeMatch: PlaceMatch?
+        if let match = PlaceIndex.shared.match(in: parsed.text) {
+            // Only a city where photos were actually taken counts; otherwise the word
+            // probably means something else and stays in the query.
+            if Self.photosNear(match, in: database) != nil {
+                placeMatch = match
+                let glue: Set<String> = ["в", "во", "из", "на", "у", "около", "возле", "рядом", "под",
+                                         "in", "at", "from", "near", "around"]
+                let rest = PlaceIndex.normalize(modelText).split(separator: " ")
+                    .map(String.init)
+                    .filter { !match.words.contains($0) && !glue.contains($0) }
+                modelText = rest.joined(separator: " ")
+            }
+        }
+
         let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
         log.add("Запрос «\(shownQuery)»: ищу…")
 
@@ -379,15 +425,23 @@ final class SearchEngine: ObservableObject {
         }
         let encoded = CFAbsoluteTimeGetCurrent()
         let count = min(database.count, database.ids.count, database.created.count, database.months.count)
+        // Rows can shift while the encoder runs (deleted photos), so the place filter is built now.
+        let place = placeMatch.flatMap { Self.photosNear($0, in: database) }
+        let placeRows = place.map { Set($0.1) }
 
         // Candidate rows after the date filter.
         var allowed: [Bool]? = nil
         if let filter = parsed.dateFilter {
             allowed = (0..<count).map { filter.matches(seconds: database.created[$0], month: database.months[$0]) }
         }
-        func isAllowed(_ row: Int) -> Bool { row >= 0 && row < count && (allowed?[row] ?? true) }
+        func isAllowed(_ row: Int) -> Bool {
+            row >= 0 && row < count && (allowed?[row] ?? true) && (placeRows?.contains(row) ?? true)
+        }
 
         var info: [String] = []
+        if let place {
+            info.append("место: \(place.0.displayName) (\(place.1.count) фото)")
+        }
         if let filter = parsed.dateFilter {
             let n = allowed?.filter { $0 }.count ?? 0
             info.append("фильтр: \(filter.label) (\(n) фото)")
@@ -424,10 +478,24 @@ final class SearchEngine: ObservableObject {
             let textRanked = database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
 
+            // Scene labels from Apple's classifier: steadier than CLIP on broad words.
+            let wantedLabels = LabelQuery.labels(for: parsed.text + " " + semantic).labels
+            var labelRanked: [Int] = []
+            if !wantedLabels.isEmpty {
+                var labelScore: [Int: Float] = [:]
+                for row in 0..<count where isAllowed(row) {
+                    guard let labels = database.labelsById[database.ids[row]] else { continue }
+                    let best = labels.filter { wantedLabels.contains($0.0) }.map(\.1).max() ?? 0
+                    if best >= 0.3 { labelScore[row] = best }
+                }
+                labelRanked = labelScore.sorted { $0.value > $1.value }.prefix(400).map(\.key)
+            }
+
             // Reciprocal rank fusion of the two lists.
             var fused: [Int: Double] = [:]
             for (rank, row) in clipRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
+            for (rank, row) in labelRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             let top = fused.sorted { $0.value > $1.value }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
             VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
@@ -438,9 +506,45 @@ final class SearchEngine: ObservableObject {
             info.append(String(format: "похожих %d, лучший %.2f", clipRanked.count, best))
             info.append(String(format: "текст %.0f мс, поиск %.0f мс", (encoded - start) * 1000, (done - encoded) * 1000))
             if !textRanked.isEmpty { info.append("совпадений в тексте на фото: \(textRanked.count)") }
+            if !wantedLabels.isEmpty { info.append("по меткам сцен: \(labelRanked.count)") }
             lastQueryInfo = info.joined(separator: " · ")
             log.add("Запрос «\(shownQuery)» → «\(semantic)»: \(lastQueryInfo ?? "")")
         }
+    }
+
+    // MARK: - Places
+
+    /// Picks the city the user most likely means (the one with photos taken there) and
+    /// returns the rows inside it. Nil when no photo was taken in any city of that name.
+    private static func photosNear(_ match: PlaceMatch, in database: IndexDatabase) -> (Place, [Int])? {
+        var best: (Place, [Int])?
+        for candidate in match.places.prefix(8) {
+            let radius = PlaceIndex.radiusKm(for: candidate)
+            var rows: [Int] = []
+            for row in 0..<min(database.latitudes.count, database.longitudes.count) {
+                let lat = database.latitudes[row], lon = database.longitudes[row]
+                if lat.isNaN || lon.isNaN { continue }
+                if abs(lat - candidate.latitude) > 1 { continue }
+                if PlaceIndex.distanceKm(lat, lon, candidate.latitude, candidate.longitude) <= radius { rows.append(row) }
+            }
+            if !rows.isEmpty && rows.count > (best?.1.count ?? 0) { best = (candidate, rows) }
+        }
+        return best
+    }
+
+    private var placeNameCache: [String: String] = [:]
+
+    /// Nearest city for a photo in the index, e.g. «Валенсия». Nil without GPS.
+    func placeName(for id: String) -> String? {
+        if let cached = placeNameCache[id] { return cached.isEmpty ? nil : cached }
+        guard let database, let row = database.row(of: id), row < database.latitudes.count else { return nil }
+        let name = placeName(latitude: database.latitudes[row], longitude: database.longitudes[row])
+        placeNameCache[id] = name ?? ""
+        return name
+    }
+
+    func placeName(latitude: Double, longitude: Double) -> String? {
+        PlaceIndex.shared.nearest(latitude: latitude, longitude: longitude)?.displayName
     }
 
     // MARK: - Helpers

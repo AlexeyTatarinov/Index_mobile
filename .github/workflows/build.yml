@@ -50,6 +50,15 @@ jobs:
       - name: Convert and compile text embedding model
         run: ./scripts/fetch-e5.sh model-cache-e5 Indexator/Resources/Models
 
+      - name: Cache places
+        uses: actions/cache@v4
+        with:
+          path: places-cache
+          key: places-${{ hashFiles('scripts/fetch-places.sh', 'scripts/build-places.py') }}
+
+      - name: Build offline places table
+        run: ./scripts/fetch-places.sh places-cache Indexator/Resources/Models
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -117,6 +126,15 @@ jobs:
 
       - name: Convert and compile text embedding model
         run: ./scripts/fetch-e5.sh model-cache-e5 Indexator/Resources/Models
+
+      - name: Cache places
+        uses: actions/cache@v4
+        with:
+          path: places-cache
+          key: places-${{ hashFiles('scripts/fetch-places.sh', 'scripts/build-places.py') }}
+
+      - name: Build offline places table
+        run: ./scripts/fetch-places.sh places-cache Indexator/Resources/Models
 
       - name: Install XcodeGen
         run: brew install xcodegen
