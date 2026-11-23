@@ -6,3 +6,9 @@ Payload/
 *.ipa
 .DS_Store
 xcuserdata/
+Indexator/Resources/
+build-sim/
+sample-photos/
+screenshots/
+model-cache/
+shots-wt/

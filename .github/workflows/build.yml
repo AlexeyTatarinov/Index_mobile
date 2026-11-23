@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -19,6 +22,15 @@ jobs:
 
       - name: Show Xcode version
         run: xcodebuild -version
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: model-cache
+          key: models-${{ hashFiles('scripts/fetch-models.sh') }}
+
+      - name: Fetch and compile models
+        run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -54,3 +66,39 @@ jobs:
           name: Indexator-unsigned-ipa
           path: Indexator.ipa
           retention-days: 30
+
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: model-cache
+          key: models-${{ hashFiles('scripts/fetch-models.sh') }}
+
+      - name: Fetch and compile models
+        run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run in simulator and take screenshots
+        run: ./scripts/screenshots.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          retention-days: 30
+
+      - name: Publish screenshots to the screenshots branch
+        if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: ./scripts/publish-screenshots.sh
