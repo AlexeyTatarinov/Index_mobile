@@ -103,7 +103,7 @@ struct SearchView: View {
                             onAddToAlbum: { albumFor = $0 },
                             onDeleted: { hidden.insert($0.id) },
                             intent: QueryIntent.detect(submittedQuery),
-                            docsConnected: !docs.folders.isEmpty,
+                            docsConnected: !docs.userFolders.isEmpty,
                             mailConnected: mail.isConnected,
                             onConnectDocs: { router.openSettings(.documents) },
                             onConnectMail: { router.openSettings(.mail) }
