@@ -37,7 +37,9 @@ swift scripts/make-sample-video.swift sample-videos/walk.mp4 4 \
 xcodebuild \
   -project Indexator.xcodeproj -scheme Indexator -configuration Debug \
   -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath build-sim \
-  -only-testing:IndexatorTests -only-testing:IndexatorUITests test | tail -40
+  -only-testing:IndexatorTests -only-testing:IndexatorUITests test > test.log 2>&1 \
+  || { grep -E "error: |XCTAssert|failed" test.log | head -60; tail -40 test.log; exit 1; }
+tail -40 test.log
 
 shot() { # name, wait seconds, launch args...
   local name=$1 wait=$2; shift 2

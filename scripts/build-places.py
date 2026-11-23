@@ -10,6 +10,7 @@ import sys
 
 LATIN_OR_CYRILLIC = re.compile(r"^[A-Za-zÀ-ɏЀ-ӿ' .\-]+$")
 CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+RUSSIAN = re.compile(r"^[А-Яа-яЁё \-]+$")  # Russian letters only, not Serbian or Ukrainian
 
 
 def norm(s):
@@ -28,7 +29,7 @@ with open(sys.argv[1], encoding="utf-8") as src, open(sys.argv[2], "w", encoding
         for candidate in [name, ascii_name] + alternates:
             if not candidate or not LATIN_OR_CYRILLIC.match(candidate):
                 continue
-            if not russian and CYRILLIC.search(candidate) and not re.search(r"[іїєґўћђљњџ]", candidate.lower()):
+            if not russian and RUSSIAN.match(candidate):
                 russian = candidate
             n = norm(candidate)
             if len(n) >= 3 and n not in names:

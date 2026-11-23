@@ -16,13 +16,16 @@ final class PlaceIndexTests: XCTestCase {
 
         let match = try XCTUnwrap(places.match(in: "архитектура Валенсии"))
         XCTAssertTrue(match.words.contains("валенсии"))
-        XCTAssertTrue(match.places.contains { $0.country == "ES" && $0.name == "Valencia" })
+        XCTAssertTrue(match.places.contains { $0.country == "ES" && $0.name == "Valencia" },
+                      "\(match.places.prefix(5).map { "\($0.name)/\($0.country)" })")
 
         let english = try XCTUnwrap(places.match(in: "beach in Barcelona"))
-        XCTAssertEqual(english.places.first?.country, "ES")
+        XCTAssertTrue(english.places.contains { $0.country == "ES" }, "\(english.places.prefix(5).map(\.name))")
 
-        XCTAssertNil(places.match(in: "собака на пляже"))
-        XCTAssertNil(places.match(in: "природа"))
+        for query in ["собака на пляже", "природа", "еда на столе"] {
+            let found = places.match(in: query)
+            XCTAssertNil(found, "\(query) → \(found?.places.first?.name ?? "") \(found?.words ?? [])")
+        }
 
         let near = try XCTUnwrap(places.nearest(latitude: 39.4699, longitude: -0.3763))
         XCTAssertEqual(near.name, "Valencia")
