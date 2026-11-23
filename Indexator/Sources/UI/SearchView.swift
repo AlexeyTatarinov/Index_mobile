@@ -97,7 +97,7 @@ struct SearchView: View {
                         text: $query,
                         focus: $searchFocused,
                         isRecording: speech.isRecording,
-                        onSubmit: { run(query: query) },
+                        onSubmit: send,
                         onMic: toggleVoice
                     )
                 }
@@ -202,11 +202,18 @@ struct SearchView: View {
         submit()
     }
 
+    /// Mic: dictation fills the field; the user checks it and presses Send.
     private func toggleVoice() {
         searchFocused = false
         speech.toggle { text in
-            run(query: text)
+            query = text
         }
+    }
+
+    /// Send button or keyboard Return: stop dictation if needed, then search.
+    private func send() {
+        if speech.isRecording { speech.stop() }
+        run(query: query)
     }
 
     private func submit() {
