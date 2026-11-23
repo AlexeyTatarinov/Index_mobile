@@ -4,13 +4,16 @@
 
 ## claude-project-thread-6jefsu
 
-<img src="claude-project-thread-6jefsu/1-index.png" width="260" alt="1-index.png">
-<img src="claude-project-thread-6jefsu/2-search.png" width="260" alt="2-search.png">
-<img src="claude-project-thread-6jefsu/3-search-mountains.png" width="260" alt="3-search-mountains.png">
-<img src="claude-project-thread-6jefsu/4-search-date.png" width="260" alt="4-search-date.png">
-<img src="claude-project-thread-6jefsu/5-log.png" width="260" alt="5-log.png">
-<img src="claude-project-thread-6jefsu/6-mail-search.png" width="260" alt="6-mail-search.png">
-<img src="claude-project-thread-6jefsu/7-mail-date.png" width="260" alt="7-mail-date.png">
+<img src="claude-project-thread-6jefsu/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="claude-project-thread-6jefsu/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="claude-project-thread-6jefsu/2-home.png" width="260" alt="2-home.png">
+<img src="claude-project-thread-6jefsu/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="claude-project-thread-6jefsu/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="claude-project-thread-6jefsu/5-detail.png" width="260" alt="5-detail.png">
+<img src="claude-project-thread-6jefsu/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="claude-project-thread-6jefsu/7-settings.png" width="260" alt="7-settings.png">
+<img src="claude-project-thread-6jefsu/8-docs-search.png" width="260" alt="8-docs-search.png">
+<img src="claude-project-thread-6jefsu/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
 
 ## claude-project-thread-sp7d9g
 
