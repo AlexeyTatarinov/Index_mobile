@@ -73,7 +73,11 @@ final class MailEngine: ObservableObject {
             store = nil
             AppLog.shared.add("Почтовая база не открылась: \(error.localizedDescription)")
         }
-        Task { await refreshCounts() }
+        Task {
+            await refreshCounts()
+            // Emails downloaded before the text model was available get their vectors now.
+            if storedCount > 0 { await indexPending() }
+        }
         Task { await auth.configure(GoogleOAuthConfig(clientId: clientId)) }
     }
 
@@ -217,6 +221,7 @@ final class MailEngine: ObservableObject {
     private func loadEmbedder() -> MailTextEmbedding? {
         if embedderChecked { return embedder }
         embedderChecked = true
+        MailEmbedderProvider.installDefault()
         guard let make = MailEmbedderProvider.make else {
             embedderStatus = "нет (поиск только по словам)"
             return nil
