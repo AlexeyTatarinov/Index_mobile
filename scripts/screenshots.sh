@@ -26,11 +26,11 @@ done
 ls sample-photos | wc -l
 xcrun simctl addmedia "$DEVICE" sample-photos/*.jpg
 
-# Builds, installs and runs the UI test that taps "Allow Full Access".
+# Builds, installs, runs unit tests and the UI test that taps "Allow Full Access".
 xcodebuild \
   -project Indexator.xcodeproj -scheme Indexator -configuration Debug \
   -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath build-sim \
-  -only-testing:IndexatorUITests test | tail -25
+  -only-testing:IndexatorTests -only-testing:IndexatorUITests test | tail -40
 
 shot() { # name, wait seconds, launch args...
   local name=$1 wait=$2; shift 2
@@ -44,5 +44,6 @@ shot() { # name, wait seconds, launch args...
 shot 1-index 60 -uiTab index -autoIndex YES
 shot 2-search 25 -uiTab search -autoQuery "a dog"
 shot 3-search-mountains 25 -uiTab search -autoQuery "mountains and a lake"
-shot 4-log 10 -uiTab log -autoQuery "a dog"
+shot 4-search-date 25 -uiTab search -autoQuery "a dog 2026"
+shot 5-log 10 -uiTab log -autoQuery "a dog"
 ls -la "$OUT"

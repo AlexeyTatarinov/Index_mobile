@@ -20,6 +20,9 @@ struct IndexView: View {
                     if let ms = engine.msPerPhoto {
                         row("Модель на фото", String(format: "%.1f мс", ms))
                     }
+                    if let ms = engine.msOCR {
+                        row("Текст на фото (OCR)", String(format: "%.0f мс", ms))
+                    }
                     if engine.authorization == .limited {
                         Text("Доступ только к выбранным фото. Для полного поиска разреши доступ ко всем фото в Настройках.")
                             .font(.footnote)
@@ -33,11 +36,13 @@ struct IndexView: View {
                             Text(value == 0 ? "Все" : "\(value)").tag(value)
                         }
                     }
+                    Toggle("Распознавать текст на фото", isOn: $engine.ocrEnabled)
+                        .disabled(engine.isIndexing)
                     if engine.isIndexing {
                         ProgressView(value: Double(engine.progressDone), total: Double(max(engine.progressTotal, 1))) {
                             Text("\(engine.progressDone) из \(engine.progressTotal)")
                         }
-                        Text("Не сворачивай приложение: в фоне индексация пока не работает.")
+                        Text("Если свернуть приложение, индексация продолжится ночью, когда телефон на зарядке.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         Button("Остановить", role: .destructive) { engine.stopIndexing() }

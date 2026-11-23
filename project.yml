@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   Indexator:
     type: application
@@ -25,14 +25,30 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         NSPhotoLibraryUsageDescription: Indexator строит на телефоне поисковый индекс по твоим фото. Ничего не отправляется в интернет.
+        NSMicrophoneUsageDescription: Микрофон нужен для голосового поиска. Запись не сохраняется.
+        NSSpeechRecognitionUsageDescription: Распознавание речи превращает голосовой запрос в текст, по возможности прямо на телефоне.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIBackgroundModes: [processing]
+        BGTaskSchedulerPermittedIdentifiers: [io.github.alexeytatarinov.indexator.index]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator
         TARGETED_DEVICE_FAMILY: "1"
     scheme:
       testTargets:
+        - IndexatorTests
         - IndexatorUITests
+  IndexatorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Indexator/Tests
+    dependencies:
+      - target: Indexator
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator.tests
+        GENERATE_INFOPLIST_FILE: YES
   IndexatorUITests:
     type: bundle.ui-testing
     platform: iOS
