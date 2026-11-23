@@ -34,6 +34,19 @@
 <img src="claude-project-thread-zrkhr8/8-docs-search-en.png" width="260" alt="8-docs-search-en.png">
 <img src="claude-project-thread-zrkhr8/9-docs-log.png" width="260" alt="9-docs-log.png">
 
+## integration
+
+<img src="integration/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="integration/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="integration/2-home.png" width="260" alt="2-home.png">
+<img src="integration/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="integration/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="integration/5-detail.png" width="260" alt="5-detail.png">
+<img src="integration/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="integration/7-settings.png" width="260" alt="7-settings.png">
+<img src="integration/8-docs-search.png" width="260" alt="8-docs-search.png">
+<img src="integration/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
+
 ## phase1-photo-search
 
 <img src="phase1-photo-search/1-index.png" width="260" alt="1-index.png">
