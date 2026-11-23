@@ -38,6 +38,10 @@ struct IndexatorApp: App {
                 IndexView()
                     .tabItem { Label("Индекс", systemImage: "square.stack.3d.up") }
                     .tag("index")
+                // Temporary entry point for mail until the new Settings screen links MailSettingsView.
+                MailView()
+                    .tabItem { Label("Почта", systemImage: "envelope") }
+                    .tag("mail")
                 LogView()
                     .tabItem { Label("Журнал", systemImage: "doc.text") }
                     .tag("log")
