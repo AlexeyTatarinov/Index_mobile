@@ -23,6 +23,9 @@ xcrun simctl boot "$DEVICE" || true
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged --batteryLevel 100 || true
 xcrun simctl install "$DEVICE" build-sim/Build/Products/Debug-iphonesimulator/Indexator.app
+# Launch once so the app is registered, then grant access so no permission dialog appears.
+xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab log; sleep 5; xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" || true
+xcrun simctl privacy "$DEVICE" grant all "$BUNDLE_ID"
 xcrun simctl privacy "$DEVICE" grant photos "$BUNDLE_ID"
 
 # Sample photos (random free photos from picsum.photos, fixed ids for stable results).

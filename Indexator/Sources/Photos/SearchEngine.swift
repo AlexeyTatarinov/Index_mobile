@@ -40,15 +40,18 @@ final class SearchEngine: ObservableObject {
     // MARK: - Setup
 
     func prepare() async {
+        // Load the model while the permission dialog is on screen.
+        async let model: Void = loadModelIfNeeded()
         if authorization == .notDetermined {
             authorization = await PhotoLibrary.requestAccess()
         } else {
             authorization = PhotoLibrary.status
         }
+        log.add("Доступ к фото: \(authorization.rawValue)")
         if authorization == .authorized || authorization == .limited {
             libraryCount = PhotoLibrary.imageCount()
         }
-        await loadModelIfNeeded()
+        await model
         await runAutomation()
     }
 
