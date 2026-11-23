@@ -46,7 +46,11 @@ final class ClipModel {
         }
 
         imageModel = try MLModel(contentsOf: try resource("\(Self.variant)_image", "mlmodelc"), configuration: config)
-        textModel = try MLModel(contentsOf: try resource("\(Self.variant)_text", "mlmodelc"), configuration: config)
+        // The text tower is small per query and int8-quantized; keep it off the Neural
+        // Engine, which is the most fragile part of Core ML on device.
+        let textConfig = MLModelConfiguration()
+        textConfig.computeUnits = .cpuOnly
+        textModel = try MLModel(contentsOf: try resource("\(Self.variant)_text", "mlmodelc"), configuration: textConfig)
         tokenizer = try WordPieceTokenizer(vocabURL: try resource("\(Self.variant)_vocab", "txt"), maxLength: Self.textLength)
 
         guard let image = imageModel.modelDescription.inputDescriptionsByName.first else {

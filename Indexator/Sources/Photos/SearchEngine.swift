@@ -261,14 +261,33 @@ final class SearchEngine: ObservableObject {
         guard let clip, let database else { return }
         let start = CFAbsoluteTimeGetCurrent()
 
+        let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        log.add("Запрос «\(shownQuery)»: ищу…")
+
+        // Encode first. Indexing may add rows while we wait, so every row-based
+        // array below is built after this point from one snapshot of the count.
+        var vector: [Float] = []
+        if !semantic.isEmpty {
+            do {
+                // CLIP was trained on captions, so "a photo of parrot" matches better than "parrot".
+                let prompt = Self.prompt(for: semantic)
+                vector = try await onWorker { try clip.embed(text: prompt) }
+            } catch {
+                lastQueryInfo = "Ошибка: \(error.localizedDescription)"
+                log.add("Ошибка кодирования запроса: \(error)")
+                return
+            }
+        }
+        let encoded = CFAbsoluteTimeGetCurrent()
+        let count = min(database.count, database.ids.count, database.created.count, database.months.count)
+
         // Candidate rows after the date filter.
         var allowed: [Bool]? = nil
         if let filter = parsed.dateFilter {
-            allowed = (0..<database.count).map { filter.matches(seconds: database.created[$0], month: database.months[$0]) }
+            allowed = (0..<count).map { filter.matches(seconds: database.created[$0], month: database.months[$0]) }
         }
-        func isAllowed(_ row: Int) -> Bool { allowed?[row] ?? true }
+        func isAllowed(_ row: Int) -> Bool { row >= 0 && row < count && (allowed?[row] ?? true) }
 
-        let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
         var info: [String] = []
         if let filter = parsed.dateFilter {
             let n = allowed?.filter { $0 }.count ?? 0
@@ -277,7 +296,7 @@ final class SearchEngine: ObservableObject {
 
         if semantic.isEmpty {
             // Only a date was given: newest first inside the filter.
-            let rows = (0..<database.count).filter(isAllowed)
+            let rows = (0..<count).filter(isAllowed)
                 .sorted { database.created[$0] > database.created[$1] }
                 .prefix(120)
             results = rows.map { SearchHit(id: database.ids[$0], score: 0, textMatch: false) }
@@ -286,18 +305,15 @@ final class SearchEngine: ObservableObject {
         }
 
         do {
-            // CLIP was trained on captions, so "a photo of parrot" matches better than "parrot".
-            let prompt = Self.prompt(for: semantic)
-            let vector = try await onWorker { try clip.embed(text: prompt) }
-            let encoded = CFAbsoluteTimeGetCurrent()
-            let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: database.count)
+            let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: count)
+            func score(_ row: Int) -> Float { row < scores.count ? scores[row] : 0 }
 
             // Keep only photos reasonably close to the best one, so a rare subject
             // does not get padded with unrelated photos.
             let candidates = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }
-            let best = candidates.first.map { scores[$0] } ?? 0
+            let best = candidates.first.map(score) ?? 0
             let cutoff = max(best - 0.05, best * 0.82)
-            let clipRanked = Array(candidates.prefix { scores[$0] >= cutoff }.prefix(400))
+            let clipRanked = Array(candidates.prefix { score($0) >= cutoff }.prefix(400))
             let words = (parsed.text + " " + semantic).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
             let textRanked = database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
@@ -307,7 +323,7 @@ final class SearchEngine: ObservableObject {
             for (rank, row) in clipRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             let top = fused.sorted { $0.value > $1.value }.prefix(90)
-            results = top.map { SearchHit(id: database.ids[$0.key], score: scores[$0.key], textMatch: textSet.contains($0.key)) }
+            results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
 
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }
@@ -317,9 +333,6 @@ final class SearchEngine: ObservableObject {
             if !textRanked.isEmpty { info.append("совпадений в тексте на фото: \(textRanked.count)") }
             lastQueryInfo = info.joined(separator: " · ")
             log.add("Запрос «\(shownQuery)» → «\(semantic)»: \(lastQueryInfo ?? "")")
-        } catch {
-            lastQueryInfo = "Ошибка: \(error.localizedDescription)"
-            log.add("Ошибка поиска: \(error)")
         }
     }
 
