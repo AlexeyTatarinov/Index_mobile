@@ -254,7 +254,11 @@ final class MailEngine: ObservableObject {
             do {
                 vectors = try await Task.detached(priority: .utility) {
                     var out: [String: [[Float]]] = [:]
-                    for m in batch { out[m.id] = try embedder.embed(passages: MailParser.passages(for: m)) }
+                    for m in batch {
+                        try autoreleasepool {
+                            out[m.id] = try embedder.embed(passages: MailParser.passages(for: m))
+                        }
+                    }
                     return out
                 }.value
                 try await store.saveVectors(vectors, model: model)
