@@ -1,0 +1,10 @@
+# Скриншоты из симулятора
+
+Обновляются автоматически при каждой сборке. Папка = ветка.
+
+## phase1-photo-search
+
+<img src="phase1-photo-search/1-index.png" width="260" alt="1-index.png">
+<img src="phase1-photo-search/2-search.png" width="260" alt="2-search.png">
+<img src="phase1-photo-search/3-search-mountains.png" width="260" alt="3-search-mountains.png">
+<img src="phase1-photo-search/4-log.png" width="260" alt="4-log.png">
