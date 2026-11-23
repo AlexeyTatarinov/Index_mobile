@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Thin wrapper around Apple's MobileCLIP Core ML exports (image + text towers).
-// Input and output names are discovered at runtime so the code does not depend
-// on how a particular export named its features.
+// Multilingual CLIP: OpenAI ViT-B/32 image tower + a multilingual DistilBERT text
+// tower trained into the same space, so Russian queries match photos directly.
+// Both are converted to Core ML in CI by scripts/convert-mclip.py.
 
 import CoreGraphics
 import CoreML
 import Foundation
 import Vision
 
-enum MobileCLIPError: LocalizedError {
+enum ClipModelError: LocalizedError {
     case missingResource(String)
     case unexpectedInput(String)
     case noOutput
@@ -23,17 +23,16 @@ enum MobileCLIPError: LocalizedError {
     }
 }
 
-final class MobileCLIP {
-    static let variant = "mobileclip_s0"
+final class ClipModel {
+    static let variant = "mclip_b32"
+    static let textLength = 64
 
     private let imageModel: MLModel
     private let textModel: MLModel
-    let tokenizer: CLIPTokenizer
+    let tokenizer: WordPieceTokenizer
 
     private let imageInputName: String
     private let imageInput: MLFeatureDescription
-    private let textInputName: String
-    private let textInput: MLFeatureDescription
 
     init() throws {
         let config = MLModelConfiguration()
@@ -43,24 +42,23 @@ final class MobileCLIP {
             if let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "Models") {
                 return url
             }
-            throw MobileCLIPError.missingResource("\(name).\(ext)")
+            throw ClipModelError.missingResource("\(name).\(ext)")
         }
 
-        imageModel = try MLModel(contentsOf: try resource("\(MobileCLIP.variant)_image", "mlmodelc"), configuration: config)
-        textModel = try MLModel(contentsOf: try resource("\(MobileCLIP.variant)_text", "mlmodelc"), configuration: config)
-        tokenizer = try CLIPTokenizer(vocabURL: try resource("bpe_simple_vocab_16e6", "txt"))
+        imageModel = try MLModel(contentsOf: try resource("\(Self.variant)_image", "mlmodelc"), configuration: config)
+        textModel = try MLModel(contentsOf: try resource("\(Self.variant)_text", "mlmodelc"), configuration: config)
+        tokenizer = try WordPieceTokenizer(vocabURL: try resource("\(Self.variant)_vocab", "txt"), maxLength: Self.textLength)
 
         guard let image = imageModel.modelDescription.inputDescriptionsByName.first else {
-            throw MobileCLIPError.unexpectedInput("image model has no inputs")
+            throw ClipModelError.unexpectedInput("image model has no inputs")
         }
         imageInputName = image.key
         imageInput = image.value
 
-        guard let text = textModel.modelDescription.inputDescriptionsByName.first else {
-            throw MobileCLIPError.unexpectedInput("text model has no inputs")
+        let textInputs = textModel.modelDescription.inputDescriptionsByName
+        guard textInputs["input_ids"] != nil, textInputs["attention_mask"] != nil else {
+            throw ClipModelError.unexpectedInput("text inputs \(textInputs.keys.sorted())")
         }
-        textInputName = text.key
-        textInput = text.value
     }
 
     /// Short human readable description of model inputs and outputs, for the diagnostics screen.
@@ -96,7 +94,7 @@ final class MobileCLIP {
         } else if let constraint = imageInput.multiArrayConstraint {
             value = MLFeatureValue(multiArray: try Self.pixelArray(from: image, constraint: constraint))
         } else {
-            throw MobileCLIPError.unexpectedInput("image input type \(imageInput.type.rawValue)")
+            throw ClipModelError.unexpectedInput("image input type \(imageInput.type.rawValue)")
         }
         let provider = try MLDictionaryFeatureProvider(dictionary: [imageInputName: value])
         let output = try imageModel.prediction(from: provider)
@@ -107,7 +105,7 @@ final class MobileCLIP {
     private static func pixelArray(from image: CGImage, constraint: MLMultiArrayConstraint) throws -> MLMultiArray {
         let shape = constraint.shape.map { $0.intValue }
         guard shape.count == 4, shape[1] == 3 else {
-            throw MobileCLIPError.unexpectedInput("image tensor shape \(shape)")
+            throw ClipModelError.unexpectedInput("image tensor shape \(shape)")
         }
         let height = shape[2], width = shape[3]
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
@@ -116,7 +114,7 @@ final class MobileCLIP {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
         ) else {
-            throw MobileCLIPError.unexpectedInput("cannot create bitmap context")
+            throw ClipModelError.unexpectedInput("cannot create bitmap context")
         }
         // Center crop to square, then scale.
         let side = min(image.width, image.height)
@@ -139,16 +137,17 @@ final class MobileCLIP {
     // MARK: - Text
 
     func embed(text: String) throws -> [Float] {
-        guard let constraint = textInput.multiArrayConstraint else {
-            throw MobileCLIPError.unexpectedInput("text input type \(textInput.type.rawValue)")
+        let (ids, mask) = tokenizer.encode(text)
+        func array(_ values: [Int32]) throws -> MLMultiArray {
+            let a = try MLMultiArray(shape: [1, NSNumber(value: values.count)], dataType: .int32)
+            let p = a.dataPointer.bindMemory(to: Int32.self, capacity: values.count)
+            for (i, v) in values.enumerated() { p[i] = v }
+            return a
         }
-        let tokens = tokenizer.tokenize(text)
-        let dataType: MLMultiArrayDataType = constraint.dataType == .float32 ? .float32 : .int32
-        let array = try MLMultiArray(shape: [1, NSNumber(value: tokens.count)], dataType: dataType)
-        for (i, token) in tokens.enumerated() {
-            array[i] = NSNumber(value: token)
-        }
-        let provider = try MLDictionaryFeatureProvider(dictionary: [textInputName: MLFeatureValue(multiArray: array)])
+        let provider = try MLDictionaryFeatureProvider(dictionary: [
+            "input_ids": MLFeatureValue(multiArray: try array(ids)),
+            "attention_mask": MLFeatureValue(multiArray: try array(mask)),
+        ])
         let output = try textModel.prediction(from: provider)
         return try Self.normalizedVector(from: output)
     }
@@ -164,6 +163,6 @@ final class MobileCLIP {
             }
             return VectorMath.normalized(vector)
         }
-        throw MobileCLIPError.noOutput
+        throw ClipModelError.noOutput
     }
 }
