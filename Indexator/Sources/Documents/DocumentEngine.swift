@@ -52,6 +52,12 @@ final class DocumentEngine: ObservableObject {
     var excludedExtensions: Set<String> {
         Set((UserDefaults.standard.stringArray(forKey: "docs.excludedExtensions") ?? []).map { $0.lowercased() })
     }
+    /// Folder names skipped while walking (set from the Settings screen).
+    var excludedFolderNames: Set<String> {
+        let names = UserDefaults.standard.stringArray(forKey: "docs.excludedFolderNames")
+            ?? ["WhatsApp", "Telegram", "Viber", "Caches", "tmp", ".Trash", "node_modules"]
+        return Set(names.map { $0.lowercased() })
+    }
     var maxFileBytes: Int64 {
         let mb = UserDefaults.standard.object(forKey: "docs.maxFileMB") as? Int ?? 50
         return Int64(max(mb, 1)) * 1_000_000
@@ -60,6 +66,7 @@ final class DocumentEngine: ObservableObject {
     private var store: DocumentStore?
     private var embedder: TextEmbedder?
     private var indexTask: Task<Void, Never>?
+    private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var resolvedFolders: [Int64: URL] = [:]
     private let worker = DispatchQueue(label: "indexator.docs", qos: .userInitiated)
@@ -85,18 +92,28 @@ final class DocumentEngine: ObservableObject {
 
     // MARK: - Model
 
+    /// Loads the model once; concurrent callers (indexing and search) wait for the same load.
     func loadEmbedderIfNeeded() async {
-        guard embedder == nil, embedderState != .loading else { return }
-        embedderState = .loading
-        let start = CFAbsoluteTimeGetCurrent()
-        do {
-            embedder = try await onWorker { try TextEmbedder.shared() }
-            embedderState = .ready
-            log.add(String(format: "Модель текста %@ загружена за %.1f с", TextEmbedder.modelName, CFAbsoluteTimeGetCurrent() - start))
-        } catch {
-            embedderState = .unavailable(error.localizedDescription)
-            log.add("Модель текста недоступна, документы ищутся только по словам: \(error.localizedDescription)")
+        if embedder != nil { return }
+        if let loadTask {
+            await loadTask.value
+            return
         }
+        let task = Task { @MainActor in
+            embedderState = .loading
+            let start = CFAbsoluteTimeGetCurrent()
+            do {
+                embedder = try await onWorker { try TextEmbedder.shared() }
+                embedderState = .ready
+                log.add(String(format: "Модель текста %@ загружена за %.1f с", TextEmbedder.modelName, CFAbsoluteTimeGetCurrent() - start))
+            } catch {
+                embedderState = .unavailable(error.localizedDescription)
+                log.add("Модель текста недоступна, документы ищутся только по словам: \(error.localizedDescription)")
+            }
+        }
+        loadTask = task
+        await task.value
+        loadTask = nil
     }
 
     // MARK: - Folders
@@ -201,6 +218,7 @@ final class DocumentEngine: ObservableObject {
         let embedder = self.embedder
         let useOCR = ocrEnabled
         let excluded = excludedExtensions
+        let excludedFolders = excludedFolderNames
         let maxBytes = maxFileBytes
         let targets = folders.filter { folderIds == nil || folderIds!.contains($0.id) }
 
@@ -221,7 +239,7 @@ final class DocumentEngine: ObservableObject {
                 log.add("Нет доступа к «\(folder.name)». Удали и добавь папку заново.")
                 continue
             }
-            let files = await onWorkerSafe { Self.listFiles(base: base, isDirectory: folder.isDirectory, excluded: excluded, maxBytes: maxBytes) }
+            let files = await onWorkerSafe { Self.listFiles(base: base, isDirectory: folder.isDirectory, excluded: excluded, excludedFolders: excludedFolders, maxBytes: maxBytes) }
             let known = Dictionary(store.documents(folderId: folder.id).map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
             let present = Set(files.map(\.path))
             for doc in known.values where !present.contains(doc.path) {
@@ -287,8 +305,8 @@ final class DocumentEngine: ObservableObject {
                        progressDone, chunkCount, CFAbsoluteTimeGetCurrent() - wallStart, msPerChunk ?? 0, failures))
     }
 
-    nonisolated private static func listFiles(base: URL, isDirectory: Bool, excluded: Set<String>, maxBytes: Int64) -> [FileEntry] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+    nonisolated private static func listFiles(base: URL, isDirectory: Bool, excluded: Set<String>, excludedFolders: Set<String>, maxBytes: Int64) -> [FileEntry] {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
         func entry(_ url: URL, path: String) -> FileEntry? {
             guard DocumentTextExtractor.isSupported(url), !excluded.contains(url.pathExtension.lowercased()),
                   let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { return nil }
@@ -307,6 +325,11 @@ final class DocumentEngine: ObservableObject {
         let basePath = base.standardizedFileURL.path
         var result: [FileEntry] = []
         for case let url as URL in enumerator {
+            if excludedFolders.contains(url.lastPathComponent.lowercased()),
+               (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                enumerator.skipDescendants()
+                continue
+            }
             var path = url.standardizedFileURL.path
             if path.hasPrefix(basePath) { path = String(path.dropFirst(basePath.count)) }
             while path.hasPrefix("/") { path.removeFirst() }

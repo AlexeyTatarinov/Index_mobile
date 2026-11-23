@@ -313,7 +313,7 @@ final class DocumentStore {
     func keywordMatches(words: [String], limit: Int = 300) -> [Int64] {
         let terms = words
             .map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }
-            .filter { $0.count >= 2 }
+            .filter { $0.count >= 3 && !DocumentStore.stopWords.contains($0) }
             .map { DocumentStore.stem($0) }
         guard !terms.isEmpty else { return [] }
         let match = terms.map { "\"\($0)\"*" }.joined(separator: " OR ")
@@ -327,6 +327,13 @@ final class DocumentStore {
         }
         return ids
     }
+
+    /// Frequent words that would match almost every chunk as a prefix.
+    static let stopWords: Set<String> = [
+        "как", "что", "это", "для", "при", "где", "или", "его", "она", "они", "все", "мне", "меня",
+        "был", "была", "было", "про", "без", "над", "под", "чем", "тот", "эта", "этот", "так", "уже",
+        "the", "and", "for", "with", "from", "that", "this", "are", "was", "what", "how", "about",
+    ]
 
     /// Crude stemming for prefix search: "налоговый" → "налогов", "договора" → "догово".
     static func stem(_ word: String) -> String {
