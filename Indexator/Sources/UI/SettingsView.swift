@@ -10,6 +10,7 @@ import UIKit
 struct SettingsView: View {
     @EnvironmentObject private var engine: SearchEngine
     @EnvironmentObject private var settings: AppSettings
+    @ObservedObject private var docs = DocumentEngine.shared
     @AppStorage("ui.indexLimit") private var limit = 0
     @State private var confirmReset = false
 
@@ -31,12 +32,22 @@ struct SettingsView: View {
                         Label("Скриншоты", systemImage: "camera.viewfinder")
                     }
                     NavigationLink {
+                        DocumentSettingsView()
+                            .navigationTitle("Документы")
+                    } label: {
+                        LabeledContent {
+                            Text(docs.folders.isEmpty ? "нет папок" : "папок: \(docs.folders.count)")
+                        } label: {
+                            Label("Документы", systemImage: "doc.text")
+                        }
+                    }
+                    NavigationLink {
                         DocumentFormatsView()
                     } label: {
                         LabeledContent {
                             Text(formatsSummary)
                         } label: {
-                            Label("Документы", systemImage: "doc.text")
+                            Label("Форматы документов", systemImage: "doc.badge.gearshape")
                         }
                     }
                     NavigationLink {
@@ -246,11 +257,6 @@ struct DocumentFormatsView: View {
                 Text("Форматы")
             } footer: {
                 Text("Выключенные форматы не индексируются и не попадают в выдачу.")
-            }
-            Section {
-                Label("Папки с документами выбираются в модуле документов: Файлы, iCloud Drive и другие хранилища.", systemImage: "folder")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Документы")

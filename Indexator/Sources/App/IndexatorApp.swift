@@ -12,6 +12,7 @@ struct IndexatorApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        _ = DocumentEngine.shared  // starts watching document folders
         BGTaskScheduler.shared.register(forTaskWithIdentifier: SearchEngine.backgroundTaskId, using: nil) { task in
             guard let task = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)

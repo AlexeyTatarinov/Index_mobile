@@ -48,4 +48,6 @@ shot 4-search-cards 25 -uiTab search -autoQuery "mountains and a lake" -ui.resul
 shot 5-detail 30 -uiTab search -autoQuery "a dog" -autoOpenFirst YES
 shot 6-search-date 25 -uiTab search -autoQuery "a dog 2026" -ui.resultLayout cards
 shot 7-settings 15 -uiTab settings
+shot 8-docs-search 30 -uiTab search -docsDemo YES -autoQuery "как вернуть налог за квартиру" -ui.resultLayout cards
+shot 9-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"
 ls -la "$OUT"

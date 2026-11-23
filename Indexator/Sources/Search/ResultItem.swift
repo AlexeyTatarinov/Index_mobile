@@ -43,7 +43,7 @@ struct ResultItem: Identifiable, Hashable {
     var fileURL: URL?
     /// UTType identifier, for documents.
     var contentType: String?
-    /// Email sender.
+    /// Email sender, or the folder a document is in.
     var sender: String?
     /// Page number inside a document, when known.
     var page: Int?

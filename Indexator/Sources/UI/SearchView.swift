@@ -4,6 +4,7 @@
 // search bar with a voice button at the bottom, and results as a grid or cards.
 
 import Photos
+import QuickLook
 import SwiftUI
 import UIKit
 import Translation
@@ -12,6 +13,8 @@ struct SearchView: View {
     @EnvironmentObject private var engine: SearchEngine
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var router: AppRouter
+    @ObservedObject private var docs = DocumentEngine.shared
+    @State private var previewURL: URL?
     @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
     @State private var pendingQuery = ""
     @State private var pendingParsed = ParsedQuery(text: "", dateFilter: nil)
@@ -27,15 +30,35 @@ struct SearchView: View {
 
     /// All results, mapped to the shared card model, minus excluded and deleted photos.
     private var items: [ResultItem] {
-        engine.results
+        let documents = docs.results.map(ResultItem.init(document:))
+        let photos = engine.results
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
             .map(ResultItem.init(photo:))
+        return documents + photos
     }
 
     private var showingResults: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty
             && !submittedQuery.isEmpty
-            && (engine.lastQueryInfo != nil || !engine.results.isEmpty)
+            && (engine.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty)
+    }
+
+    private var queryInfo: String? {
+        let parts = [engine.lastQueryInfo, docs.lastQueryInfo.map { "документы: \($0)" }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func openItem(_ item: ResultItem) {
+        switch item.kind {
+        case .photo:
+            opened = item
+        case .document:
+            if let hit = docs.results.first(where: { $0.id == item.id }) {
+                previewURL = docs.withAccess(to: hit) { $0 }
+            }
+        case .mail:
+            break
+        }
     }
 
     var body: some View {
@@ -52,9 +75,9 @@ struct SearchView: View {
                     if showingResults {
                         ResultsView(
                             items: items,
-                            info: engine.lastQueryInfo,
+                            info: queryInfo,
                             layout: $layout,
-                            onOpen: { opened = $0 },
+                            onOpen: openItem,
                             onAddToAlbum: { albumFor = $0 },
                             onDeleted: { hidden.insert($0.id) }
                         )
@@ -133,6 +156,7 @@ struct SearchView: View {
                     await searchWithDictionary(parsed: parsed, original: original)
                 }
             }
+            .quickLookPreview($previewURL)
             .sheet(item: $opened) { item in
                 PhotoPagerView(
                     items: items.filter { $0.kind == item.kind },
@@ -188,6 +212,7 @@ struct SearchView: View {
     private func submit() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        Task { await DocumentEngine.shared.search(text) }
         let parsed = QueryParser.parse(text)
         if parsed.text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil {
             pendingQuery = text
