@@ -7,3 +7,7 @@ Payload/
 .DS_Store
 xcuserdata/
 Indexator/Resources/
+build-sim/
+sample-photos/
+screenshots/
+model-cache/

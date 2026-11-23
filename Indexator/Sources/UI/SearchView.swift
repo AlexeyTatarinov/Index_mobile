@@ -7,7 +7,7 @@ import Translation
 
 struct SearchView: View {
     @EnvironmentObject private var engine: SearchEngine
-    @State private var query = ""
+    @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
     @State private var pendingQuery = ""
     @State private var translationConfig: TranslationSession.Configuration?
     @State private var selected: SearchHit?

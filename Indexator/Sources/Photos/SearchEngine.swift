@@ -49,6 +49,19 @@ final class SearchEngine: ObservableObject {
             libraryCount = PhotoLibrary.imageCount()
         }
         await loadModelIfNeeded()
+        await runAutomation()
+    }
+
+    /// CI screenshot mode: `-autoIndex YES` indexes everything, `-autoQuery "a dog"` runs a query.
+    private func runAutomation() async {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "autoIndex") {
+            startIndexing(limit: 0)
+            await indexTask?.value
+        }
+        if let query = defaults.string(forKey: "autoQuery"), !query.isEmpty {
+            await search(modelQuery: query, shownQuery: query)
+        }
     }
 
     private func loadModelIfNeeded() async {
