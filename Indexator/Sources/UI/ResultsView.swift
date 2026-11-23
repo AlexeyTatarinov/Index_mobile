@@ -88,8 +88,8 @@ struct ResultsView: View {
 
     @ViewBuilder
     private var content: some View {
-        let photos = filtered.filter { $0.kind == .photo }
-        let others = filtered.filter { $0.kind != .photo }
+        let photos = filtered.filter(\.isMedia)
+        let others = filtered.filter { !$0.isMedia }
 
         if !others.isEmpty {
             LazyVStack(spacing: 10) {
@@ -105,21 +105,38 @@ struct ResultsView: View {
             if layout == .grid {
                 LazyVGrid(columns: columns, spacing: 2) {
                     ForEach(photos) { item in
-                        Button { onOpen(item) } label: { PhotoGridCell(item: item) }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                PhotoMenu(id: item.id, onOpen: { onOpen(item) },
-                                          onAddToAlbum: { onAddToAlbum(item) }, onDeleted: { onDeleted(item) })
-                            } preview: {
-                                PhotoPreview(id: item.id)
-                            }
+                        if item.kind == .video {
+                            Button { onOpen(item) } label: { VideoGridCell(item: item) }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    VideoMenu(id: item.id, onOpen: { onOpen(item) },
+                                              onAddToAlbum: { onAddToAlbum(item) }, onDeleted: { onDeleted(item) })
+                                } preview: {
+                                    VideoThumbnail(id: item.id, time: item.time ?? 0, side: 320)
+                                        .frame(width: 320, height: 320)
+                                }
+                        } else {
+                            Button { onOpen(item) } label: { PhotoGridCell(item: item) }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    PhotoMenu(id: item.id, onOpen: { onOpen(item) },
+                                              onAddToAlbum: { onAddToAlbum(item) }, onDeleted: { onDeleted(item) })
+                                } preview: {
+                                    PhotoPreview(id: item.id)
+                                }
+                        }
                     }
                 }
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(photos) { item in
-                        PhotoCard(item: item, onOpen: { onOpen(item) },
-                                  onAddToAlbum: { onAddToAlbum(item) }, onDeleted: { onDeleted(item) })
+                        if item.kind == .video {
+                            VideoCard(item: item, onOpen: { onOpen(item) },
+                                      onAddToAlbum: { onAddToAlbum(item) }, onDeleted: { onDeleted(item) })
+                        } else {
+                            PhotoCard(item: item, onOpen: { onOpen(item) },
+                                      onAddToAlbum: { onAddToAlbum(item) }, onDeleted: { onDeleted(item) })
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -321,6 +338,7 @@ struct TextResultCard: View {
         switch item.kind {
         case .mail: return "envelope.fill"
         case .photo: return "photo"
+        case .video: return "video.fill"
         case .document:
             let type = item.contentType ?? ""
             if type.contains("pdf") { return "doc.richtext.fill" }

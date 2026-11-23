@@ -201,6 +201,13 @@ final class BackgroundIndexer: ObservableObject {
             }
         }
 
+        // Videos are slow to index; only the long overnight task waits for them.
+        if trigger.isBackground && deadline == nil && !Task.isCancelled && VideoEngine.shared.enabled {
+            VideoEngine.shared.startIndexing(reason: trigger.title)
+            await VideoEngine.shared.waitForIndexing()
+            parts.append("видео: проверены")
+        }
+
         run.summary = parts.joined(separator: " · ")
         run.finished = Date()
         if record {

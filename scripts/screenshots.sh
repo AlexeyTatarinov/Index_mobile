@@ -26,6 +26,13 @@ done
 ls sample-photos | wc -l
 xcrun simctl addmedia "$DEVICE" sample-photos/*.jpg
 
+# A sample video: landscape, landscape, the puppy (8-12 s), landscape. Video search
+# should find it for "собака" and open it at the puppy.
+mkdir -p sample-videos
+swift scripts/make-sample-video.swift sample-videos/walk.mp4 4 \
+  sample-photos/1015.jpg sample-photos/1043.jpg sample-photos/237.jpg sample-photos/1035.jpg || true
+[[ -s sample-videos/walk.mp4 ]] && xcrun simctl addmedia "$DEVICE" sample-videos/walk.mp4 || echo "no sample video"
+
 # Builds, installs, runs unit tests and the UI test that taps "Allow Full Access".
 xcodebuild \
   -project Indexator.xcodeproj -scheme Indexator -configuration Debug \
@@ -45,10 +52,12 @@ shot 1-settings-indexing 60 -uiTab settings -autoIndex YES
 shot 2-home 15 -uiTab search
 shot 3-search-grid 25 -uiTab search -autoQuery "собака"
 shot 4-search-cards 25 -uiTab search -autoQuery "горы и озеро" -ui.resultLayout cards
-shot 5-detail 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES
+shot 5-detail 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind photo
 shot 6-search-date 25 -uiTab search -autoQuery "собака 2026" -ui.resultLayout cards
 shot 7-settings 15 -uiTab settings
 shot 8-docs-search 30 -uiTab search -docsDemo YES -autoQuery "как вернуть налог за квартиру" -ui.resultLayout cards
 shot 9-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"
 shot 10-mail-search 20 -uiTab search -mailDemo YES -autoQuery "билет на поезд" -autoMailQuery "билет на поезд" -ui.resultLayout cards
+shot 11-video-search 25 -uiTab search -autoQuery "собака" -ui.resultLayout cards
+shot 12-video-player 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind video
 ls -la "$OUT"

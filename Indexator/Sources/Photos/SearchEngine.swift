@@ -98,6 +98,10 @@ final class SearchEngine: ObservableObject {
             BackgroundIndexer.shared.startObservingPhotos()
             indexNewPhotos()
         }
+        VideoEngine.shared.refreshLibraryCount()
+        if VideoEngine.shared.hasIndex {
+            VideoEngine.shared.startIndexing(reason: "новые видео")
+        }
     }
 
     var hasPhotoAccess: Bool {
@@ -110,6 +114,10 @@ final class SearchEngine: ObservableObject {
         if defaults.bool(forKey: "autoIndex") {
             startIndexing(limit: 0)
             await indexTask?.value
+        }
+        if defaults.bool(forKey: "autoIndex") {
+            VideoEngine.shared.startIndexing(reason: "автотест")
+            await VideoEngine.shared.waitForIndexing()
         }
         if let query = defaults.string(forKey: "autoQuery"), !query.isEmpty {
             await search(text: query)
@@ -141,6 +149,7 @@ final class SearchEngine: ObservableObject {
         guard !isIndexing, syncTask == nil else { return }
         indexTask = Task { [weak self] in
             _ = await self?.syncPhotos(reason: "вручную", limit: limit)
+            if !Task.isCancelled { VideoEngine.shared.startIndexing(reason: "вручную") }
         }
     }
 
@@ -156,6 +165,7 @@ final class SearchEngine: ObservableObject {
     func stopIndexing() {
         indexTask?.cancel()
         syncTask?.cancel()
+        VideoEngine.shared.stopIndexing()
     }
 
     /// Brings the index in line with the library: forgets deleted photos and indexes the
@@ -318,9 +328,17 @@ final class SearchEngine: ObservableObject {
     func resetIndex() {
         stopIndexing()
         database?.reset()
+        VideoEngine.shared.resetIndex()
         indexedCount = 0
         results = []
         log.add("Индекс удалён")
+    }
+
+    /// Video indexing shares the model and the worker queue, so only one
+    /// prediction runs at a time and memory stays flat.
+    func embedFrame(_ image: CGImage) async throws -> [Float] {
+        guard let clip else { throw ClipModelError.noOutput }
+        return try await onWorker { try clip.embed(image: image) }
     }
 
     func recognizedText(for id: String) -> String? {
@@ -381,6 +399,11 @@ final class SearchEngine: ObservableObject {
                 .sorted { database.created[$0] > database.created[$1] }
                 .prefix(120)
             results = rows.map { SearchHit(id: database.ids[$0], score: 0, textMatch: false) }
+            if let filter = parsed.dateFilter {
+                VideoEngine.shared.search(dateFilter: filter)
+            } else {
+                VideoEngine.shared.clearResults()
+            }
             lastQueryInfo = info.joined(separator: " · ")
             return
         }
@@ -407,6 +430,7 @@ final class SearchEngine: ObservableObject {
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             let top = fused.sorted { $0.value > $1.value }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
+            VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
 
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }
