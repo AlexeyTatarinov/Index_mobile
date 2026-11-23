@@ -24,6 +24,8 @@ struct SettingsView: View {
                     IndexHealthCard()
                 }
 
+                AutoUpdateSection()
+
                 Section {
                     Toggle(isOn: $engine.ocrEnabled) {
                         Label("Текст на фото", systemImage: "text.viewfinder")
@@ -99,7 +101,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Индексация")
                 } footer: {
-                    Text("Новые фото добавляются сами при открытии приложения. Большая медиатека доиндексируется ночью, когда телефон заряжается.")
+                    Text("Индекс обновляется сам, см. «Автообновление». Кнопка выше нужна, только чтобы запустить проверку сразу.")
                 }
 
                 Section("Для разработчика") {

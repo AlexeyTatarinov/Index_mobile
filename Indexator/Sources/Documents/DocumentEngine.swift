@@ -197,6 +197,25 @@ final class DocumentEngine: ObservableObject {
         indexTask?.cancel()
     }
 
+    /// Short summary of the last pass, for the background run history.
+    private(set) var lastRunSummary = ""
+
+    /// Re-scans all folders and waits for the result. Used by background tasks:
+    /// `deadline` stops before the next file once the time is up; the rest is picked
+    /// up next time, because finished files are skipped by size and date.
+    func refreshAndWait(deadline: Date? = nil) async -> String {
+        guard !folders.isEmpty else { return "документы: папок нет" }
+        if isIndexing, let indexTask {
+            await indexTask.value
+            return lastRunSummary
+        }
+        indexTask = Task { [weak self] in
+            await self?.runIndexing(folderIds: nil, deadline: deadline)
+        }
+        await indexTask?.value
+        return lastRunSummary
+    }
+
     func resetIndex() {
         stopIndexing()
         store?.reset()
@@ -212,7 +231,7 @@ final class DocumentEngine: ObservableObject {
         let modified: Double
     }
 
-    private func runIndexing(folderIds: [Int64]?) async {
+    private func runIndexing(folderIds: [Int64]?, deadline: Date? = nil) async {
         guard let store else { return }
         await loadEmbedderIfNeeded()
         let embedder = self.embedder
@@ -234,6 +253,7 @@ final class DocumentEngine: ObservableObject {
 
         // 1. Collect what needs (re)indexing.
         var todo: [(DocumentFolder, FileEntry)] = []
+        var removed = 0
         for folder in targets {
             guard let base = folderURL(folder) else {
                 log.add("Нет доступа к «\(folder.name)». Удали и добавь папку заново.")
@@ -244,6 +264,7 @@ final class DocumentEngine: ObservableObject {
             let present = Set(files.map(\.path))
             for doc in known.values where !present.contains(doc.path) {
                 store.deleteDocument(id: doc.id, updateMemory: true)
+                removed += 1
             }
             for file in files {
                 if let doc = known[file.path], doc.size == file.size, abs(doc.modified - file.modified) < 1,
@@ -254,6 +275,8 @@ final class DocumentEngine: ObservableObject {
             }
         }
         store.reloadIfNeeded()
+        if removed > 0 { log.add("Документы: убрано \(removed) удалённых файлов") }
+        lastRunSummary = removed > 0 ? "документы: −\(removed)" : "документы: без изменений"
         guard !todo.isEmpty else { return }
 
         progressTotal = todo.count
@@ -263,6 +286,7 @@ final class DocumentEngine: ObservableObject {
 
         for (folder, file) in todo {
             if Task.isCancelled { break }
+            if let deadline, Date() >= deadline { break }
             currentFile = file.path.isEmpty ? folder.name : file.path
             let result = await onWorkerSafe { () -> (ExtractedDocument?, [NewChunk], String?, Double) in
                 do {
@@ -301,6 +325,8 @@ final class DocumentEngine: ObservableObject {
             if progressDone % 10 == 0 { refreshState() }
         }
 
+        let left = todo.count - progressDone
+        lastRunSummary = "документы: +\(progressDone)" + (removed > 0 ? ", −\(removed)" : "") + (left > 0 ? ", осталось \(left)" : "")
         log.add(String(format: "Документы готовы: %d файлов, %d фрагментов за %.0f с (%.0f мс на фрагмент), ошибок %d",
                        progressDone, chunkCount, CFAbsoluteTimeGetCurrent() - wallStart, msPerChunk ?? 0, failures))
     }

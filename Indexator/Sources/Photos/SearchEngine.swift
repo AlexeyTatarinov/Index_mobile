@@ -7,6 +7,26 @@ import BackgroundTasks
 import Foundation
 import Photos
 
+/// What one pass of `syncPhotos` did, for the log and the Settings screen.
+struct PhotoSyncResult {
+    var added = 0
+    var removed = 0
+    var remaining = 0
+    var isCancelled = false
+    var skipped: String?
+
+    var isComplete: Bool { skipped == nil && remaining == 0 }
+
+    var summary: String {
+        if let skipped { return "фото: \(skipped)" }
+        var parts: [String] = []
+        if added > 0 { parts.append("+\(added)") }
+        if removed > 0 { parts.append("−\(removed)") }
+        if remaining > 0 { parts.append("осталось \(remaining)") }
+        return parts.isEmpty ? "фото: без изменений" : "фото: " + parts.joined(separator: ", ")
+    }
+}
+
 struct SearchHit: Identifiable, Hashable {
     let id: String        // PHAsset.localIdentifier
     let score: Float      // CLIP similarity, for display
@@ -16,7 +36,6 @@ struct SearchHit: Identifiable, Hashable {
 @MainActor
 final class SearchEngine: ObservableObject {
     static let shared = SearchEngine()
-    static let backgroundTaskId = "io.github.alexeytatarinov.indexator.index"
 
     enum ModelState: Equatable {
         case notLoaded
@@ -45,6 +64,8 @@ final class SearchEngine: ObservableObject {
     private var clip: ClipModel?
     private var database: IndexDatabase?
     private var indexTask: Task<Void, Never>?
+    private var syncTask: Task<PhotoSyncResult, Never>?
+    private var resyncRequested = false
     private let worker = DispatchQueue(label: "indexator.clip", qos: .userInitiated)
     private let log = AppLog.shared
 
@@ -73,7 +94,8 @@ final class SearchEngine: ObservableObject {
         }
         await model
         await runAutomation()
-        if indexedCount > 0 && !isIndexing {
+        if hasPhotoAccess {
+            BackgroundIndexer.shared.startObservingPhotos()
             indexNewPhotos()
         }
     }
@@ -114,57 +136,106 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Indexing
 
+    /// The "Обновить индекс" button and CI automation: `limit == 0` means all photos.
     func startIndexing(limit: Int) {
-        guard !isIndexing else { return }
+        guard !isIndexing, syncTask == nil else { return }
         indexTask = Task { [weak self] in
-            guard let self else { return }
-            await self.runIndexing(assets: PhotoLibrary.fetchImageAssets(limit: limit), reason: "вручную")
+            _ = await self?.syncPhotos(reason: "вручную", limit: limit)
         }
     }
 
-    /// Photos taken after the newest indexed one.
-    func indexNewPhotos() {
-        guard !isIndexing, let newest = database?.newestCreated else { return }
-        indexTask = Task { [weak self] in
-            guard let self else { return }
-            let assets = PhotoLibrary.fetchImageAssets(limit: 0, newerThan: newest)
-            guard !assets.isEmpty else { return }
-            await self.runIndexing(assets: assets, reason: "новые фото")
+    /// Picks up new and deleted photos without blocking the caller.
+    func indexNewPhotos(reason: String = "новые фото") {
+        guard hasPhotoAccess, !isIndexing, syncTask == nil else {
+            if isIndexing || syncTask != nil { resyncRequested = true }
+            return
         }
+        Task { [weak self] in _ = await self?.syncPhotos(reason: reason) }
     }
 
     func stopIndexing() {
         indexTask?.cancel()
+        syncTask?.cancel()
     }
 
-    /// Called from a BGProcessingTask: index everything that is not indexed yet.
-    func runBackgroundIndexing() async {
-        await loadModelIfNeeded()
+    /// Brings the index in line with the library: forgets deleted photos and indexes the
+    /// missing ones, newest first. Safe to interrupt at any point: everything written so far
+    /// stays, and the next pass continues where this one stopped.
+    /// `deadline` bounds the time spent (short background refresh); `limit` overrides the
+    /// "Сколько фото" setting.
+    func syncPhotos(reason: String, deadline: Date? = nil, limit: Int? = nil) async -> PhotoSyncResult {
+        if let syncTask {
+            resyncRequested = true
+            return await syncTask.value
+        }
         authorization = PhotoLibrary.status
-        guard hasPhotoAccess, !isIndexing else { return }
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.runIndexing(assets: PhotoLibrary.fetchImageAssets(limit: 0), reason: "в фоне")
+        guard hasPhotoAccess else { return PhotoSyncResult(skipped: "нет доступа к фото") }
+        guard !isIndexing else {
+            resyncRequested = true
+            return PhotoSyncResult(skipped: "индексация уже идёт")
         }
-        indexTask = task
-        await task.value
+        let task = Task { [weak self] () -> PhotoSyncResult in
+            guard let self else { return PhotoSyncResult(skipped: "нет движка") }
+            return await self.performSync(reason: reason, deadline: deadline, limit: limit)
+        }
+        syncTask = task
+        let result = await task.value
+        syncTask = nil
+        if resyncRequested {
+            resyncRequested = false
+            // Something changed while we were busy; foreground passes catch up right away.
+            if deadline == nil && !result.isCancelled { indexNewPhotos(reason: "изменения во время индексации") }
+        }
+        return result
     }
 
-    static func scheduleBackgroundIndexing() {
-        let request = BGProcessingTaskRequest(identifier: backgroundTaskId)
-        request.requiresExternalPower = true
-        request.requiresNetworkConnectivity = false
-        do {
-            try BGTaskScheduler.shared.submit(request)
-        } catch {
-            AppLog.shared.add("Фоновая задача не запланирована: \(error.localizedDescription)")
+    private func performSync(reason: String, deadline: Date?, limit: Int?) async -> PhotoSyncResult {
+        await loadModelIfNeeded()
+        guard clip != nil, let database else { return PhotoSyncResult(skipped: "модель не загружена") }
+
+        // Listing 50k assets takes a moment; keep it off the main thread.
+        let assets: [PHAsset] = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: PhotoLibrary.fetchImageAssets(limit: 0))
+            }
         }
+        libraryCount = assets.count
+        var result = PhotoSyncResult()
+
+        // Deleted photos. With "selected photos only" access the rest of the library is
+        // invisible, not deleted, so nothing is removed then.
+        if authorization == .authorized {
+            let present = Set(assets.map(\.localIdentifier))
+            let gone = Set(database.ids.filter { !present.contains($0) })
+            // An empty library next to a big index is more likely a glitch than a mass deletion.
+            if !gone.isEmpty && !(assets.isEmpty && database.count > 20) {
+                database.remove(ids: gone)
+                indexedCount = database.count
+                results.removeAll { gone.contains($0.id) }
+                result.removed = gone.count
+                log.add("Убрано из индекса: \(gone.count) фото, которых больше нет в медиатеке")
+            }
+        }
+
+        let maxCount = limit ?? UserDefaults.standard.integer(forKey: "ui.indexLimit")
+        let wanted = maxCount > 0 ? Array(assets.prefix(maxCount)) : assets
+        let outcome = await runIndexing(assets: wanted, reason: reason, deadline: deadline)
+        result.added = outcome.added
+        result.remaining = outcome.remaining
+        result.isCancelled = outcome.cancelled
+        return result
     }
 
-    private func runIndexing(assets: [PHAsset], reason: String) async {
-        guard let clip, let database else { return }
+    private struct IndexingOutcome {
+        var added = 0
+        var remaining = 0
+        var cancelled = false
+    }
+
+    private func runIndexing(assets: [PHAsset], reason: String, deadline: Date? = nil) async -> IndexingOutcome {
+        guard let clip, let database else { return IndexingOutcome() }
         let todo = assets.filter { !database.contains($0.localIdentifier) }
-        guard !todo.isEmpty else { return }
+        guard !todo.isEmpty else { return IndexingOutcome() }
 
         isIndexing = true
         progressTotal = todo.count
@@ -177,8 +248,12 @@ final class SearchEngine: ObservableObject {
         let wallStart = CFAbsoluteTimeGetCurrent()
         database.begin()
 
+        var stopReason: String?
         for asset in todo {
-            if Task.isCancelled { break }
+            if Task.isCancelled { stopReason = "остановлено"; break }
+            if let deadline, Date() >= deadline { stopReason = "кончилось фоновое время"; break }
+            let thermal = ProcessInfo.processInfo.thermalState
+            if thermal == .serious || thermal == .critical { stopReason = "телефон нагрелся, пауза"; break }
             let side: CGFloat = useOCR ? 1024 : 256
             guard let image = await PhotoLibrary.cgImage(for: asset, side: side) else {
                 failures += 1
@@ -187,11 +262,15 @@ final class SearchEngine: ObservableObject {
             }
             do {
                 let (vector, text, tClip, tOCR) = try await onWorker { () throws -> ([Float], String, Double, Double) in
-                    let t0 = CFAbsoluteTimeGetCurrent()
-                    let v = try clip.embed(image: image)
-                    let t1 = CFAbsoluteTimeGetCurrent()
-                    let s = useOCR ? TextRecognizer.recognize(in: image) : ""
-                    return (v, s, t1 - t0, CFAbsoluteTimeGetCurrent() - t1)
+                    // Drain Core ML and Vision temporaries after every photo, so memory stays flat
+                    // through tens of thousands of photos (matters most in the background).
+                    try autoreleasepool {
+                        let t0 = CFAbsoluteTimeGetCurrent()
+                        let v = try clip.embed(image: image)
+                        let t1 = CFAbsoluteTimeGetCurrent()
+                        let s = useOCR ? TextRecognizer.recognize(in: image) : ""
+                        return (v, s, t1 - t0, CFAbsoluteTimeGetCurrent() - t1)
+                    }
                 }
                 clipSeconds += tClip
                 ocrSeconds += tOCR
@@ -228,10 +307,12 @@ final class SearchEngine: ObservableObject {
         indexedCount = database.count
         isIndexing = false
         let wall = CFAbsoluteTimeGetCurrent() - wallStart
+        let remaining = todo.count - progressDone
         log.add(String(
             format: "Готово: %d фото за %.0f с (модель %.1f мс, OCR %.0f мс на фото), с текстом %d, ошибок %d",
             embedded, wall, msPerPhoto ?? 0, msOCR ?? 0, withText, failures
-        ))
+        ) + (stopReason.map { ". Прервано: \($0), осталось \(remaining)" } ?? ""))
+        return IndexingOutcome(added: embedded, remaining: remaining, cancelled: stopReason == "остановлено")
     }
 
     func resetIndex() {

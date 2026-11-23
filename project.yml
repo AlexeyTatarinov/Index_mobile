@@ -7,7 +7,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: 0.3.0
-    CURRENT_PROJECT_VERSION: "10"
+    CURRENT_PROJECT_VERSION: "11"
 targets:
   Indexator:
     type: application
@@ -33,8 +33,10 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: io.github.alexeytatarinov.indexator
             CFBundleURLSchemes: [indexator]
-        UIBackgroundModes: [processing]
-        BGTaskSchedulerPermittedIdentifiers: [io.github.alexeytatarinov.indexator.index]
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - io.github.alexeytatarinov.indexator.index
+          - io.github.alexeytatarinov.indexator.refresh
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator

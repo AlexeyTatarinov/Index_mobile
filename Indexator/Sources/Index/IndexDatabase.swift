@@ -48,10 +48,11 @@ final class IndexDatabase {
         return valid.max().map { Date(timeIntervalSince1970: $0) }
     }
 
-    init(model: String) throws {
+    /// `directory` is for tests; the app keeps the index in Application Support/Index.
+    init(model: String, directory: URL? = nil) throws {
         self.model = model
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = base.appendingPathComponent("Index", isDirectory: true)
+        let directory = directory ?? base.appendingPathComponent("Index", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let path = directory.appendingPathComponent("index.sqlite").path
 
@@ -117,6 +118,37 @@ final class IndexDatabase {
         }
         appendInMemory(id: record.id, created: record.created?.timeIntervalSince1970,
                        lat: record.latitude, lon: record.longitude, vector: record.vector)
+    }
+
+    /// Removes photos that are gone from the library, on disk and in the in-memory mirror.
+    func remove(ids toRemove: Set<String>) {
+        let present = toRemove.filter { rowOf[$0] != nil }
+        guard !present.isEmpty else { return }
+        try? exec("SAVEPOINT remove_photos")
+        for id in present {
+            for sql in ["DELETE FROM photos WHERE id = ?", "DELETE FROM photo_text WHERE id = ?"] {
+                try? withStatement(sql) { stmt in
+                    sqlite3_bind_text(stmt, 1, id, -1, SQLITE_TRANSIENT)
+                    try step(stmt)
+                }
+            }
+        }
+        try? exec("RELEASE remove_photos")
+
+        let oldIds = ids, oldCreated = created, oldLat = latitudes, oldLon = longitudes
+        let oldVectors = vectors, dim = dimension
+        ids = []; created = []; months = []; latitudes = []; longitudes = []; vectors = []; rowOf = [:]
+        for row in oldIds.indices where !present.contains(oldIds[row]) {
+            let seconds = oldCreated[row]
+            appendInMemory(
+                id: oldIds[row],
+                created: seconds.isNaN ? nil : seconds,
+                lat: oldLat[row].isNaN ? nil : oldLat[row],
+                lon: oldLon[row].isNaN ? nil : oldLon[row],
+                vector: Array(oldVectors[(row * dim)..<((row + 1) * dim)])
+            )
+        }
+        if ids.isEmpty { dimension = 0 }
     }
 
     func reset() {

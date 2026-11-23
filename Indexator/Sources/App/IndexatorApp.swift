@@ -1,7 +1,6 @@
 // Indexator — локальный семантический поиск по фото и документам на iPhone.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import BackgroundTasks
 import SwiftUI
 
 @main
@@ -13,21 +12,7 @@ struct IndexatorApp: App {
 
     init() {
         _ = DocumentEngine.shared  // starts watching document folders
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: SearchEngine.backgroundTaskId, using: nil) { task in
-            guard let task = task as? BGProcessingTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            task.expirationHandler = {
-                Task { @MainActor in SearchEngine.shared.stopIndexing() }
-            }
-            Task { @MainActor in
-                AppLog.shared.add("Фоновая индексация запущена системой")
-                await SearchEngine.shared.runBackgroundIndexing()
-                SearchEngine.scheduleBackgroundIndexing()
-                task.setTaskCompleted(success: true)
-            }
-        }
+        BackgroundIndexer.registerTasks()
     }
 
     var body: some Scene {
@@ -58,10 +43,10 @@ struct IndexatorApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
-                SearchEngine.scheduleBackgroundIndexing()
+                BackgroundIndexer.shared.appDidEnterBackground()
             case .active:
                 router.consumePendingLaunch()
-                engine.indexNewPhotos()
+                BackgroundIndexer.shared.appDidBecomeActive()
             default:
                 break
             }
