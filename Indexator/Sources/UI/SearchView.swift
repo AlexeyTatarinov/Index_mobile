@@ -14,6 +14,8 @@ struct SearchView: View {
     @EnvironmentObject private var router: AppRouter
     @ObservedObject private var docs = DocumentEngine.shared
     @ObservedObject private var mail = MailEngine.shared
+    @ObservedObject private var video = VideoEngine.shared
+    @State private var openedVideo: ResultItem?
     @State private var openedMail: ResultItem?
     @State private var previewURL: URL?
     @State private var query = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
@@ -33,17 +35,35 @@ struct SearchView: View {
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
             .map(ResultItem.init(photo:))
         let emails = mail.results.map(ResultItem.init(mail:))
-        return documents + emails + photos
+        let videos = video.results
+            .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
+            .map(ResultItem.init(video:))
+        return documents + emails + Self.mergeByScore(photos, videos)
+    }
+
+    /// Photos and videos in one list: a video goes before the first photo it beats.
+    private static func mergeByScore(_ photos: [ResultItem], _ videos: [ResultItem]) -> [ResultItem] {
+        var merged: [ResultItem] = []
+        merged.reserveCapacity(photos.count + videos.count)
+        var p = 0, v = 0
+        while p < photos.count || v < videos.count {
+            if v < videos.count && (p >= photos.count || videos[v].score > photos[p].score || videos[v].textMatch && !photos[p].textMatch) {
+                merged.append(videos[v]); v += 1
+            } else {
+                merged.append(photos[p]); p += 1
+            }
+        }
+        return merged
     }
 
     private var showingResults: Bool {
         !query.trimmingCharacters(in: .whitespaces).isEmpty
             && !submittedQuery.isEmpty
-            && (engine.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty || !mail.results.isEmpty)
+            && (engine.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty || !mail.results.isEmpty || !video.results.isEmpty)
     }
 
     private var queryInfo: String? {
-        let parts = [engine.lastQueryInfo, docs.lastQueryInfo.map { "документы: \($0)" },
+        let parts = [engine.lastQueryInfo, video.lastQueryInfo, docs.lastQueryInfo.map { "документы: \($0)" },
                      mail.results.isEmpty ? nil : mail.lastQueryInfo.map { "почта: \($0)" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -52,6 +72,8 @@ struct SearchView: View {
         switch item.kind {
         case .photo:
             opened = item
+        case .video:
+            openedVideo = item
         case .document:
             if let hit = docs.results.first(where: { $0.id == item.id }) {
                 previewURL = docs.withAccess(to: hit) { $0 }
@@ -155,6 +177,9 @@ struct SearchView: View {
             .sheet(item: $albumFor) { item in
                 AlbumPicker(photoId: item.id)
             }
+            .sheet(item: $openedVideo) { item in
+                VideoPlayerView(item: item, onDeleted: { hidden.insert($0.id) })
+            }
             .sheet(item: $openedMail) { item in
                 NavigationStack {
                     MailDetailView(messageId: item.id)
@@ -167,9 +192,12 @@ struct SearchView: View {
             }
             .onChange(of: engine.results) { _, _ in
                 // CI screenshots: `-autoOpenFirst YES` opens the first result once.
-                if UserDefaults.standard.bool(forKey: "autoOpenFirst"), !didAutoOpen, let first = items.first {
+                // `-autoOpenKind video` opens the first result of that kind instead.
+                let kind = UserDefaults.standard.string(forKey: "autoOpenKind")
+                if UserDefaults.standard.bool(forKey: "autoOpenFirst"), !didAutoOpen,
+                   let first = items.first(where: { kind == nil || $0.kind.rawValue == kind }) {
                     didAutoOpen = true
-                    opened = first
+                    openItem(first)
                 }
             }
         }

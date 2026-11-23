@@ -12,6 +12,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject private var docs = DocumentEngine.shared
     @ObservedObject private var mail = MailEngine.shared
+    @ObservedObject private var video = VideoEngine.shared
     @AppStorage("ui.indexLimit") private var limit = 0
     @State private var confirmReset = false
 
@@ -31,6 +32,15 @@ struct SettingsView: View {
                     .disabled(engine.isIndexing)
                     Toggle(isOn: $settings.includeScreenshots) {
                         Label("Скриншоты", systemImage: "camera.viewfinder")
+                    }
+                    NavigationLink {
+                        VideoSettingsView()
+                    } label: {
+                        LabeledContent {
+                            Text(video.enabled ? "в индексе: \(video.indexedCount)" : "выключено")
+                        } label: {
+                            Label("Видео", systemImage: "video")
+                        }
                     }
                     NavigationLink {
                         DocumentSettingsView()
