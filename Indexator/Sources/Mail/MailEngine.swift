@@ -75,6 +75,7 @@ final class MailEngine: ObservableObject {
         }
         Task {
             await refreshCounts()
+            await runAutomation()
             // Emails downloaded before the text model was available get their vectors now.
             if storedCount > 0 { await indexPending() }
         }
