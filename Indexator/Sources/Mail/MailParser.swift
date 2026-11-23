@@ -179,7 +179,7 @@ enum MailParser {
         var lines: [String] = []
         var blank = 0
         for raw in text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = raw.replacingOccurrences(of: "[ \\t\\u{00A0}\\u{200B}]+", with: " ", options: .regularExpression)
+            let line = raw.replacingOccurrences(of: "[ \\t\\x{00A0}\\x{200B}]+", with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
             if line.isEmpty {
                 blank += 1
