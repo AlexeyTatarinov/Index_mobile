@@ -2,6 +2,16 @@
 
 Обновляются автоматически при каждой сборке. Папка = ветка.
 
+## claude-project-thread-sp7d9g
+
+<img src="claude-project-thread-sp7d9g/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="claude-project-thread-sp7d9g/2-home.png" width="260" alt="2-home.png">
+<img src="claude-project-thread-sp7d9g/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="claude-project-thread-sp7d9g/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="claude-project-thread-sp7d9g/5-detail.png" width="260" alt="5-detail.png">
+<img src="claude-project-thread-sp7d9g/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="claude-project-thread-sp7d9g/7-settings.png" width="260" alt="7-settings.png">
+
 ## phase1-photo-search
 
 <img src="phase1-photo-search/1-index.png" width="260" alt="1-index.png">
