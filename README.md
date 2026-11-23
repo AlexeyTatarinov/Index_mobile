@@ -28,6 +28,21 @@
 <img src="claude-project-thread-6jefsu/8-docs-search.png" width="260" alt="8-docs-search.png">
 <img src="claude-project-thread-6jefsu/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
 
+## claude-project-thread-7owvig
+
+<img src="claude-project-thread-7owvig/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="claude-project-thread-7owvig/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="claude-project-thread-7owvig/11-video-search.png" width="260" alt="11-video-search.png">
+<img src="claude-project-thread-7owvig/12-video-player.png" width="260" alt="12-video-player.png">
+<img src="claude-project-thread-7owvig/2-home.png" width="260" alt="2-home.png">
+<img src="claude-project-thread-7owvig/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="claude-project-thread-7owvig/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="claude-project-thread-7owvig/5-detail.png" width="260" alt="5-detail.png">
+<img src="claude-project-thread-7owvig/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="claude-project-thread-7owvig/7-settings.png" width="260" alt="7-settings.png">
+<img src="claude-project-thread-7owvig/8-docs-search.png" width="260" alt="8-docs-search.png">
+<img src="claude-project-thread-7owvig/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
+
 ## claude-project-thread-sp7d9g
 
 <img src="claude-project-thread-sp7d9g/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
