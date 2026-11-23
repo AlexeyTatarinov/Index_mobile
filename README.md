@@ -2,6 +2,19 @@
 
 Обновляются автоматически при каждой сборке. Папка = ветка.
 
+## claude-project-thread-2xq8w5
+
+<img src="claude-project-thread-2xq8w5/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="claude-project-thread-2xq8w5/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="claude-project-thread-2xq8w5/2-home.png" width="260" alt="2-home.png">
+<img src="claude-project-thread-2xq8w5/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="claude-project-thread-2xq8w5/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="claude-project-thread-2xq8w5/5-detail.png" width="260" alt="5-detail.png">
+<img src="claude-project-thread-2xq8w5/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="claude-project-thread-2xq8w5/7-settings.png" width="260" alt="7-settings.png">
+<img src="claude-project-thread-2xq8w5/8-docs-search.png" width="260" alt="8-docs-search.png">
+<img src="claude-project-thread-2xq8w5/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
+
 ## claude-project-thread-6jefsu
 
 <img src="claude-project-thread-6jefsu/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
