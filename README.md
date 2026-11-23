@@ -1,2 +1,30 @@
-# Index_mobile
-Local AI-powered semantic file search for iOS with hybrid indexing: on-device processing for everyday use and external agent offloading for 1TB+ archives.
+# Index_mobile (Indexator)
+
+Локальный семантический поиск по фото и документам на iPhone. Работает полностью офлайн: модели, индекс и поиск живут на устройстве.
+
+Статус: **фаза 0**, проверочное приложение. Оно нужно, чтобы убедиться, что сборка без Mac и установка на телефон работают.
+
+## Как устроена сборка
+
+Mac не нужен. Проект описан текстом в `project.yml` ([XcodeGen](https://github.com/yonaskolb/XcodeGen)), а GitHub Actions на macOS-машине генерирует из него Xcode-проект и собирает **неподписанный** `Indexator.ipa`. Подписывает его уже Sideloadly твоим бесплатным Apple ID при установке.
+
+## Установка на iPhone с Windows
+
+Один раз:
+
+1. Установи iTunes и iCloud для Windows **с сайта Apple** (версии из Microsoft Store Sideloadly может не увидеть).
+2. Установи [Sideloadly](https://sideloadly.io/).
+3. На iPhone включи «Настройки → Конфиденциальность и безопасность → Режим разработчика» (iPhone перезагрузится).
+
+Каждый раз, когда выходит новая сборка:
+
+1. Открой вкладку **Actions** в репозитории, выбери последний зелёный запуск «Build unsigned IPA».
+2. Внизу в разделе **Artifacts** скачай `Indexator-unsigned-ipa` и распакуй zip. Внутри будет `Indexator.ipa`.
+3. Подключи iPhone кабелем, открой Sideloadly, перетащи туда `Indexator.ipa`, введи свой Apple ID и нажми **Start**.
+4. При первой установке на iPhone: «Настройки → Основные → VPN и управление устройством», выбери свой Apple ID и нажми «Доверять».
+
+Подпись бесплатного Apple ID живёт **7 дней**. Чтобы продлить, повтори шаг 3 с тем же файлом. Данные приложения при этом сохраняются.
+
+## Лицензия
+
+[GPL-3.0](LICENSE).
