@@ -47,6 +47,9 @@
 
 <img src="claude-project-thread-sp7d9g/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
 <img src="claude-project-thread-sp7d9g/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="claude-project-thread-sp7d9g/11-video-search.png" width="260" alt="11-video-search.png">
+<img src="claude-project-thread-sp7d9g/12-video-player.png" width="260" alt="12-video-player.png">
+<img src="claude-project-thread-sp7d9g/13-resume-no-docs.png" width="260" alt="13-resume-no-docs.png">
 <img src="claude-project-thread-sp7d9g/2-home.png" width="260" alt="2-home.png">
 <img src="claude-project-thread-sp7d9g/3-search-grid.png" width="260" alt="3-search-grid.png">
 <img src="claude-project-thread-sp7d9g/4-search-cards.png" width="260" alt="4-search-cards.png">
