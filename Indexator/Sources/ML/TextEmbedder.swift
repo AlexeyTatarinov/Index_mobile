@@ -56,7 +56,11 @@ final class TextEmbedder {
         }
 
         let config = MLModelConfiguration()
-        config.computeUnits = .all
+        // Not .all: on the GPU, MPSGraph unpacks the int8 weights into a huge constant
+        // table at first prediction and aborts with bad_alloc (crash on iPhone 16 Pro,
+        // build 0.3.0 (12), while embedding ~1000 emails). CPU + Neural Engine run
+        // the quantized model directly.
+        config.computeUnits = .cpuAndNeuralEngine
         model = try MLModel(contentsOf: try resource("multilingual_e5_small", "mlmodelc"), configuration: config)
         tokenizer = try SentencePieceTokenizer(tokenizerJSON: try resource("e5_tokenizer", "json"))
 
