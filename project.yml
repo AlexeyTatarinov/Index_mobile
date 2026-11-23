@@ -25,6 +25,8 @@ targets:
         CFBundleDisplayName: Indexator
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         NSPhotoLibraryUsageDescription: Indexator строит на телефоне поисковый индекс по твоим фото. Ничего не отправляется в интернет.
         NSMicrophoneUsageDescription: Микрофон нужен для голосового поиска. Запись не сохраняется.

@@ -23,10 +23,8 @@ enum DocumentDemo {
         let pdf = folder.appendingPathComponent("Договор аренды.pdf")
         if !FileManager.default.fileExists(atPath: pdf.path) { writePDF(to: pdf) }
 
-        if !engine.folders.contains(where: { $0.name == folder.lastPathComponent }) {
-            engine.addFolder(url: folder)
-        }
-        // addFolder starts indexing; wait for it.
+        // The samples sit in the app's own folder, which is always indexed.
+        engine.startIndexing()
         for _ in 0..<600 where engine.isIndexing || engine.stats.chunks == 0 {
             try? await Task.sleep(nanoseconds: 200_000_000)
         }

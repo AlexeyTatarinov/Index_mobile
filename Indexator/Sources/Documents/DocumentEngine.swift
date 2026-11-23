@@ -45,6 +45,8 @@ final class DocumentEngine: ObservableObject {
     @Published private(set) var results: [DocumentHit] = []
     @Published private(set) var lastQueryInfo: String?
     @Published private(set) var lastError: String?
+    /// Files in iCloud that are not on the phone yet; their download was requested.
+    @Published private(set) var pendingDownloads = 0
 
     @Published var ocrEnabled: Bool = UserDefaults.standard.object(forKey: "docs.ocrEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(ocrEnabled, forKey: "docs.ocrEnabled") }
@@ -83,9 +85,27 @@ final class DocumentEngine: ObservableObject {
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in DocumentEngine.shared.refreshChanged() }
         }
+        ensureAppFolder()
         if DocumentDemo.isEnabled {
             Task { @MainActor in await DocumentDemo.run(engine: DocumentEngine.shared) }
         }
+    }
+
+    /// Name of the built-in folder: the app's own folder in Files ("На iPhone → Indexator").
+    /// It is always indexed; anything dropped there is found without any setup.
+    static let appFolderName = "Indexator в «Файлах»"
+
+    /// User-picked folders (the built-in app folder does not count).
+    var userFolders: [DocumentFolder] { folders.filter { !$0.bookmark.isEmpty } }
+
+    private func ensureAppFolder() {
+        guard let store, !store.folders().contains(where: { $0.bookmark.isEmpty }) else { return }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        // A visible subfolder, so the app's folder shows up in Files right away.
+        try? FileManager.default.createDirectory(at: docs.appendingPathComponent("Документы"), withIntermediateDirectories: true)
+        // An empty bookmark marks the app's own Documents folder; its path is resolved fresh each time.
+        _ = try? store.addFolder(name: Self.appFolderName, bookmark: Data(), isDirectory: true)
+        refreshState()
     }
 
     var indexedChunks: Int { stats.chunks }
@@ -155,6 +175,9 @@ final class DocumentEngine: ObservableObject {
     /// so results can be previewed, shared and opened without extra bookkeeping.
     func folderURL(_ folder: DocumentFolder) -> URL? {
         if let url = resolvedFolders[folder.id] { return url }
+        if folder.bookmark.isEmpty {
+            return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        }
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: folder.bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else {
             return nil
@@ -254,12 +277,14 @@ final class DocumentEngine: ObservableObject {
         // 1. Collect what needs (re)indexing.
         var todo: [(DocumentFolder, FileEntry)] = []
         var removed = 0
+        var pendingCount = 0
         for folder in targets {
             guard let base = folderURL(folder) else {
                 log.add("Нет доступа к «\(folder.name)». Удали и добавь папку заново.")
                 continue
             }
-            let files = await onWorkerSafe { Self.listFiles(base: base, isDirectory: folder.isDirectory, excluded: excluded, excludedFolders: excludedFolders, maxBytes: maxBytes) }
+            let (files, waiting) = await onWorkerSafe { Self.listFiles(base: base, isDirectory: folder.isDirectory, excluded: excluded, excludedFolders: excludedFolders, maxBytes: maxBytes) }
+            pendingCount += waiting
             let known = Dictionary(store.documents(folderId: folder.id).map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
             let present = Set(files.map(\.path))
             for doc in known.values where !present.contains(doc.path) {
@@ -275,6 +300,11 @@ final class DocumentEngine: ObservableObject {
             }
         }
         store.reloadIfNeeded()
+        pendingDownloads = pendingCount
+        if pendingCount > 0 {
+            log.add("Документы: \(pendingCount) файлов ещё в iCloud, попросил скачать; проиндексирую, когда скачаются")
+            scheduleRecheck()
+        }
         if removed > 0 { log.add("Документы: убрано \(removed) удалённых файлов") }
         lastRunSummary = removed > 0 ? "документы: −\(removed)" : "документы: без изменений"
         guard !todo.isEmpty else { return }
@@ -290,7 +320,7 @@ final class DocumentEngine: ObservableObject {
             currentFile = file.path.isEmpty ? folder.name : file.path
             let result = await onWorkerSafe { () -> (ExtractedDocument?, [NewChunk], String?, Double) in
                 do {
-                    let extracted = try DocumentTextExtractor.extract(from: file.url, allowOCR: useOCR)
+                    let extracted = try Self.coordinatedExtract(file.url, allowOCR: useOCR)
                     let pieces = TextChunker.chunks(from: extracted.pages)
                     let t0 = CFAbsoluteTimeGetCurrent()
                     var chunks: [NewChunk] = []
@@ -331,29 +361,54 @@ final class DocumentEngine: ObservableObject {
                        progressDone, chunkCount, CFAbsoluteTimeGetCurrent() - wallStart, msPerChunk ?? 0, failures))
     }
 
-    nonisolated private static func listFiles(base: URL, isDirectory: Bool, excluded: Set<String>, excludedFolders: Set<String>, maxBytes: Int64) -> [FileEntry] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+    /// Lists supported files. Returns the files ready to read and how many are still in
+    /// iCloud (their download is requested; they are picked up on a later pass).
+    nonisolated private static func listFiles(base: URL, isDirectory: Bool, excluded: Set<String>, excludedFolders: Set<String>, maxBytes: Int64) -> ([FileEntry], Int) {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+                                      .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
+        var waiting = 0
+        func supported(_ url: URL) -> Bool {
+            DocumentTextExtractor.isSupported(url) && !excluded.contains(url.pathExtension.lowercased())
+        }
         func entry(_ url: URL, path: String) -> FileEntry? {
-            guard DocumentTextExtractor.isSupported(url), !excluded.contains(url.pathExtension.lowercased()),
-                  let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { return nil }
+            guard supported(url), let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { return nil }
+            if values.isUbiquitousItem == true, let status = values.ubiquitousItemDownloadingStatus, status == .notDownloaded {
+                try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+                waiting += 1
+                return nil
+            }
             let size = Int64(values.fileSize ?? 0)
             guard size > 0, size <= maxBytes else { return nil }
             return FileEntry(url: url, path: path, size: size,
                              modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0)
         }
         if !isDirectory {
-            return entry(base, path: "").map { [$0] } ?? []
+            return (entry(base, path: "").map { [$0] } ?? [], waiting)
         }
+        // Hidden files are skipped by hand: iCloud placeholders (".name.pdf.icloud") are hidden too.
         guard let enumerator = FileManager.default.enumerator(
-            at: base, includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return [] }
+            at: base, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants]
+        ) else { return ([], 0) }
         let basePath = base.standardizedFileURL.path
         var result: [FileEntry] = []
         for case let url as URL in enumerator {
-            if excludedFolders.contains(url.lastPathComponent.lowercased()),
-               (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                enumerator.skipDescendants()
+            let name = url.lastPathComponent
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            if name.hasPrefix(".") {
+                if !isDir, name.hasSuffix(".icloud") {
+                    // ".Резюме.pdf.icloud" stands for "Резюме.pdf" that is not downloaded yet.
+                    let realName = String(name.dropFirst().dropLast(".icloud".count))
+                    let real = url.deletingLastPathComponent().appendingPathComponent(realName)
+                    if supported(real) {
+                        try? FileManager.default.startDownloadingUbiquitousItem(at: real)
+                        waiting += 1
+                    }
+                }
+                if isDir { enumerator.skipDescendants() }
+                continue
+            }
+            if isDir {
+                if excludedFolders.contains(name.lowercased()) { enumerator.skipDescendants() }
                 continue
             }
             var path = url.standardizedFileURL.path
@@ -362,7 +417,31 @@ final class DocumentEngine: ObservableObject {
             if let e = entry(url, path: path) { result.append(e) }
             if result.count >= 20_000 { break }
         }
-        return result
+        return (result, waiting)
+    }
+
+    /// Reads through NSFileCoordinator, so files kept by a file provider (iCloud Drive,
+    /// other cloud apps) are brought onto the phone before reading.
+    nonisolated private static func coordinatedExtract(_ url: URL, allowOCR: Bool) throws -> ExtractedDocument {
+        var coordinationError: NSError?
+        var result: Result<ExtractedDocument, Error> = .failure(DocumentExtractionError.unreadable(fileName: url.lastPathComponent))
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges], error: &coordinationError) { readURL in
+            result = Result { try DocumentTextExtractor.extract(from: readURL, allowOCR: allowOCR) }
+        }
+        if let coordinationError { throw coordinationError }
+        return try result.get()
+    }
+
+    private var recheckTask: Task<Void, Never>?
+
+    /// Looks again in a minute, when requested iCloud downloads have likely arrived.
+    private func scheduleRecheck() {
+        recheckTask?.cancel()
+        recheckTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refreshChanged()
+        }
     }
 
     private func refreshState() {
@@ -382,7 +461,13 @@ final class DocumentEngine: ObservableObject {
         }
         guard stats.chunks > 0 else {
             results = []
-            lastQueryInfo = nil
+            if userFolders.isEmpty {
+                lastQueryInfo = "папки не подключены (Настройки → Документы)"
+            } else if isIndexing {
+                lastQueryInfo = "ещё индексируются: \(progressDone) из \(progressTotal)"
+            } else {
+                lastQueryInfo = "в подключённых папках нет документов"
+            }
             return
         }
         await loadEmbedderIfNeeded()

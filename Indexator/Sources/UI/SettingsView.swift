@@ -18,8 +18,10 @@ struct SettingsView: View {
 
     private let limits = [100, 1000, 5000, 0]
 
+    @EnvironmentObject private var router: AppRouter
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $router.settingsPath) {
             List {
                 Section {
                     IndexHealthCard()
@@ -49,7 +51,7 @@ struct SettingsView: View {
                             .navigationTitle("Документы")
                     } label: {
                         LabeledContent {
-                            Text(docs.folders.isEmpty ? "нет папок" : "папок: \(docs.folders.count)")
+                            Text(docs.userFolders.isEmpty ? "не подключены" : "папок: \(docs.userFolders.count)")
                         } label: {
                             Label("Документы", systemImage: "doc.text")
                         }
@@ -141,6 +143,16 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Настройки")
+            .navigationDestination(for: AppRouter.SettingsPage.self) { page in
+                switch page {
+                case .documents:
+                    DocumentSettingsView()
+                        .navigationTitle("Документы")
+                case .mail:
+                    MailSettingsView()
+                        .navigationTitle("Почта")
+                }
+            }
             .confirmationDialog("Удалить индекс?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Удалить", role: .destructive) { engine.resetIndex() }
             } message: {

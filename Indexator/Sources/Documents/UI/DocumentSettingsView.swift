@@ -22,7 +22,9 @@ struct DocumentSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .swipeActions {
-                        Button("Убрать", role: .destructive) { engine.removeFolder(folder) }
+                        if !folder.bookmark.isEmpty {
+                            Button("Убрать", role: .destructive) { engine.removeFolder(folder) }
+                        }
                     }
                 }
                 Button {
@@ -40,7 +42,7 @@ struct DocumentSettingsView: View {
             } header: {
                 Text("Папки")
             } footer: {
-                Text("Выбери папку в «Файлах» (на iPhone, в iCloud Drive или на флешке). Приложение запомнит доступ и будет само подхватывать новые и изменённые файлы. Смахни влево, чтобы убрать папку из индекса.")
+                Text("iOS не даёт приложениям доступ ко всей памяти сразу, поэтому один раз выбери в «Файлах» нужные места: целиком «iCloud Drive», «На iPhone» или папку «Загрузки». Подпапки индексируются сами, доступ запоминается, новые файлы подхватываются автоматически. Папка «\(DocumentEngine.appFolderName)» подключена всегда: всё, что туда положишь, найдётся.")
             }
 
             Section("Индексация") {
@@ -67,6 +69,11 @@ struct DocumentSettingsView: View {
                 } else {
                     Button("Проверить папки сейчас") { engine.startIndexing() }
                         .disabled(engine.folders.isEmpty)
+                }
+                if engine.pendingDownloads > 0 {
+                    Text("Ещё в iCloud, скачиваются: \(engine.pendingDownloads). Проиндексирую, когда скачаются.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 if let error = engine.lastError {
                     Text(error)
