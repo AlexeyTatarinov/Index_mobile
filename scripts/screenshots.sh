@@ -14,26 +14,23 @@ if [[ -z "$DEVICE" ]]; then
 fi
 echo "Simulator: $DEVICE"
 
-xcodebuild \
-  -project Indexator.xcodeproj -scheme Indexator -configuration Debug \
-  -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath build-sim \
-  CODE_SIGNING_ALLOWED=NO build | tail -5
-
 xcrun simctl boot "$DEVICE" || true
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged --batteryLevel 100 || true
-xcrun simctl install "$DEVICE" build-sim/Build/Products/Debug-iphonesimulator/Indexator.app
-# Launch once so the app is registered, then grant access so no permission dialog appears.
-xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab log; sleep 5; xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" || true
-xcrun simctl privacy "$DEVICE" grant all "$BUNDLE_ID"
-xcrun simctl privacy "$DEVICE" grant photos "$BUNDLE_ID"
 
-# Sample photos (random free photos from picsum.photos, fixed ids for stable results).
+# Sample photos (free photos from picsum.photos, fixed ids for stable results).
 for id in 1003 1011 1015 1025 1035 1043 1050 1060 1062 1069 1074 1080 1084 237 200 219 169 433 582 659; do
   f="sample-photos/$id.jpg"
   [[ -s "$f" ]] || curl -fsSL --retry 3 "https://picsum.photos/id/$id/1200/900" -o "$f" || true
 done
+ls sample-photos | wc -l
 xcrun simctl addmedia "$DEVICE" sample-photos/*.jpg
+
+# Builds, installs and runs the UI test that taps "Allow Full Access".
+xcodebuild \
+  -project Indexator.xcodeproj -scheme Indexator -configuration Debug \
+  -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath build-sim \
+  -only-testing:IndexatorUITests test | tail -25
 
 shot() { # name, wait seconds, launch args...
   local name=$1 wait=$2; shift 2

@@ -30,4 +30,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator
         TARGETED_DEVICE_FAMILY: "1"
-    scheme: {}
+    scheme:
+      testTargets:
+        - IndexatorUITests
+  IndexatorUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - Indexator/UITests
+    dependencies:
+      - target: Indexator
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator.uitests
+        GENERATE_INFOPLIST_FILE: YES
