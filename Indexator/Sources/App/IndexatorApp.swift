@@ -36,6 +36,9 @@ struct IndexatorApp: App {
                 SearchView()
                     .tabItem { Label("Поиск", systemImage: "magnifyingglass") }
                     .tag(AppRouter.Tab.search)
+                MailView()
+                    .tabItem { Label("Почта", systemImage: "envelope") }
+                    .tag(AppRouter.Tab.mail)
                 SettingsView()
                     .tabItem { Label("Настройки", systemImage: "gearshape") }
                     .tag(AppRouter.Tab.settings)

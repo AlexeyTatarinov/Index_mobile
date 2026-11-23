@@ -50,4 +50,5 @@ shot 6-search-date 25 -uiTab search -autoQuery "собака 2026" -ui.resultLay
 shot 7-settings 15 -uiTab settings
 shot 8-docs-search 30 -uiTab search -docsDemo YES -autoQuery "как вернуть налог за квартиру" -ui.resultLayout cards
 shot 9-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"
+shot 10-mail-search 12 -uiTab mail -mailDemo YES -autoMailQuery "билет на поезд"
 ls -la "$OUT"

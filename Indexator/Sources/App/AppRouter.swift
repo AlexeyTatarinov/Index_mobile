@@ -11,7 +11,7 @@ import SwiftUI
 final class AppRouter: ObservableObject {
     static let shared = AppRouter()
 
-    enum Tab: String { case search, settings }
+    enum Tab: String { case search, mail, settings }
 
     @Published var tab: Tab
     /// Incremented to ask the search screen to focus the field.
@@ -23,6 +23,7 @@ final class AppRouter: ObservableObject {
         // Launch arguments like `-uiTab settings` land in UserDefaults; used by CI screenshots.
         switch UserDefaults.standard.string(forKey: "uiTab") {
         case "settings", "index", "log": tab = .settings
+        case "mail": tab = .mail
         default: tab = .search
         }
     }
