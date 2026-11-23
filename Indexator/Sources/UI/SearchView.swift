@@ -12,6 +12,7 @@ struct SearchView: View {
     @State private var pendingParsed = ParsedQuery(text: "", dateFilter: nil)
     @State private var translationConfig: TranslationSession.Configuration?
     @State private var selected: SearchHit?
+    @StateObject private var speech = SpeechInput()
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 2)]
 
@@ -20,6 +21,19 @@ struct SearchView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     status
+                    if speech.isRecording {
+                        Label(speech.transcript.isEmpty ? "Слушаю… Нажми микрофон ещё раз, чтобы искать." : speech.transcript,
+                              systemImage: "waveform")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal)
+                    }
+                    if let error = speech.error {
+                        Text(error)
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal)
+                    }
                     if let info = engine.lastQueryInfo {
                         Text(info)
                             .font(.caption)
@@ -57,15 +71,36 @@ struct SearchView: View {
             .navigationTitle("Поиск")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Например: собака на пляже летом 2024")
             .onSubmit(of: .search) { submit() }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        speech.toggle { text in
+                            query = text
+                            submit()
+                        }
+                    } label: {
+                        Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic.fill")
+                            .font(.title2)
+                            .foregroundStyle(speech.isRecording ? Color.red : Color.accentColor)
+                            .symbolEffect(.pulse, isActive: speech.isRecording)
+                    }
+                    .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Голосовой поиск")
+                }
+            }
+            .onChange(of: speech.transcript) { _, text in
+                if speech.isRecording && !text.isEmpty { query = text }
+            }
             .translationTask(translationConfig) { session in
                 let original = pendingQuery
                 let parsed = pendingParsed
                 do {
+                    try await session.prepareTranslation()
                     let response = try await session.translate(parsed.text)
-                    await engine.search(parsed: parsed, modelText: response.targetText, shownQuery: original)
+                    AppLog.shared.add("Перевод: «\(parsed.text)» → «\(response.targetText)»")
+                    await engine.search(parsed: parsed, modelText: response.targetText, shownQuery: original, via: "перевод")
                 } catch {
-                    AppLog.shared.add("Перевод не удался (\(error.localizedDescription)), ищу как есть")
-                    await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: original)
+                    AppLog.shared.add("Системный перевод не удался: \(String(describing: error))")
+                    await searchWithDictionary(parsed: parsed, original: original)
                 }
             }
             .sheet(item: $selected) { hit in
@@ -103,16 +138,43 @@ struct SearchView: View {
         if parsed.text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil {
             pendingQuery = text
             pendingParsed = parsed
-            if translationConfig == nil {
-                translationConfig = TranslationSession.Configuration(
-                    source: Locale.Language(identifier: "ru"),
-                    target: Locale.Language(identifier: "en")
+            Task {
+                let status = await LanguageAvailability().status(
+                    from: Locale.Language(identifier: "ru"),
+                    to: Locale.Language(identifier: "en")
                 )
-            } else {
-                translationConfig?.invalidate()
+                AppLog.shared.add("Перевод ru→en: \(status == .installed ? "установлен" : status == .supported ? "можно скачать" : "не поддерживается")")
+                if status == .unsupported {
+                    await searchWithDictionary(parsed: parsed, original: text)
+                } else {
+                    startTranslation()
+                }
             }
         } else {
             Task { await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: text) }
+        }
+    }
+
+    private func startTranslation() {
+        if translationConfig == nil {
+            translationConfig = TranslationSession.Configuration(
+                source: Locale.Language(identifier: "ru"),
+                target: Locale.Language(identifier: "en")
+            )
+        } else {
+            translationConfig?.invalidate()
+        }
+    }
+
+    /// Built-in word list, used when the system translator is missing or fails.
+    private func searchWithDictionary(parsed: ParsedQuery, original: String) async {
+        if let english = FallbackDictionary.translate(parsed.text) {
+            AppLog.shared.add("Словарь: «\(parsed.text)» → «\(english)»")
+            await engine.search(parsed: parsed, modelText: english, shownQuery: original, via: "встроенный словарь")
+        } else {
+            AppLog.shared.add("Не смог перевести «\(parsed.text)», ищу только по тексту на фото")
+            await engine.search(parsed: parsed, modelText: parsed.text, shownQuery: original,
+                                via: "не переведено: скачай русский и английский в Настройки → Приложения → Перевод")
         }
     }
 }

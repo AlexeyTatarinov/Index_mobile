@@ -251,7 +251,8 @@ final class SearchEngine: ObservableObject {
 
     /// `modelText` is what goes into the CLIP text encoder (English); `parsed.text` is the
     /// user's own words without the date part, used for keyword search on OCR text.
-    func search(parsed: ParsedQuery, modelText: String, shownQuery: String) async {
+    /// `via` says how the Russian query became English, shown above the results.
+    func search(parsed: ParsedQuery, modelText: String, shownQuery: String, via: String? = nil) async {
         guard let clip, let database else { return }
         let start = CFAbsoluteTimeGetCurrent()
 
@@ -263,6 +264,8 @@ final class SearchEngine: ObservableObject {
         func isAllowed(_ row: Int) -> Bool { allowed?[row] ?? true }
 
         let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // CLIP only understands English: with Russian left over, rely on words found on photos.
+        let untranslated = semantic.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil
         var info: [String] = []
         if let filter = parsed.dateFilter {
             let n = allowed?.filter { $0 }.count ?? 0
@@ -280,11 +283,18 @@ final class SearchEngine: ObservableObject {
         }
 
         do {
-            let vector = try await onWorker { try clip.embed(text: semantic) }
+            // CLIP was trained on captions, so "a photo of a parrot" matches better than "parrot".
+            let prompt = Self.prompt(for: semantic)
+            let vector = try await onWorker { try clip.embed(text: prompt) }
             let encoded = CFAbsoluteTimeGetCurrent()
             let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: database.count)
 
-            let clipRanked = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }.prefix(400)
+            // Keep only photos reasonably close to the best one, so a rare subject
+            // does not get padded with unrelated photos.
+            let candidates = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }
+            let best = candidates.first.map { scores[$0] } ?? 0
+            let cutoff = max(best - 0.05, best * 0.82)
+            let clipRanked = untranslated ? [] : Array(candidates.prefix { scores[$0] >= cutoff }.prefix(400))
             let words = (parsed.text + " " + semantic).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
             let textRanked = database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
@@ -297,7 +307,9 @@ final class SearchEngine: ObservableObject {
             results = top.map { SearchHit(id: database.ids[$0.key], score: scores[$0.key], textMatch: textSet.contains($0.key)) }
 
             let done = CFAbsoluteTimeGetCurrent()
-            if semantic != parsed.text { info.insert("«\(semantic)»", at: 0) }
+            if let via { info.insert(via, at: 0) }
+            info.insert("Ищу: «\(untranslated ? parsed.text : semantic)»", at: 0)
+            if !untranslated { info.append(String(format: "похожих %d, лучший %.2f", clipRanked.count, best)) }
             info.append(String(format: "текст %.0f мс, поиск %.0f мс", (encoded - start) * 1000, (done - encoded) * 1000))
             if !textRanked.isEmpty { info.append("совпадений в тексте на фото: \(textRanked.count)") }
             lastQueryInfo = info.joined(separator: " · ")
@@ -309,6 +321,14 @@ final class SearchEngine: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    nonisolated static func prompt(for text: String) -> String {
+        let lower = text.lowercased()
+        if lower.hasPrefix("a photo") || lower.hasPrefix("photo of") || lower.split(separator: " ").count > 6 {
+            return text
+        }
+        return "a photo of \(text)"
+    }
 
     private func onWorker<T>(_ body: @escaping () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
