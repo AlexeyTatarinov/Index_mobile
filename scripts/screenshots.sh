@@ -42,8 +42,8 @@ shot() { # name, wait seconds, launch args...
 }
 
 shot 1-index 60 -uiTab index -autoIndex YES
-shot 2-search 25 -uiTab search -autoQuery "a dog"
-shot 3-search-mountains 25 -uiTab search -autoQuery "mountains and a lake"
-shot 4-search-date 25 -uiTab search -autoQuery "a dog 2026"
+shot 2-search 25 -uiTab search -autoQuery "собака"
+shot 3-search-mountains 25 -uiTab search -autoQuery "горы и озеро"
+shot 4-search-date 25 -uiTab search -autoQuery "собака 2026"
 shot 5-log 10 -uiTab log -autoQuery "a dog"
 ls -la "$OUT"

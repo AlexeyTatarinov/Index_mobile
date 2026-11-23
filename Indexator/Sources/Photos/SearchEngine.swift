@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Loads MobileCLIP, indexes photos (vector + OCR text + date/place) into SQLite,
+// Loads the CLIP model, indexes photos (vector + OCR text + date/place) into SQLite,
 // and answers queries with hybrid ranking: meaning (CLIP) + words found on photos.
 
 import BackgroundTasks
@@ -42,7 +42,7 @@ final class SearchEngine: ObservableObject {
         didSet { UserDefaults.standard.set(ocrEnabled, forKey: "ocrEnabled") }
     }
 
-    private var clip: MobileCLIP?
+    private var clip: ClipModel?
     private var database: IndexDatabase?
     private var indexTask: Task<Void, Never>?
     private let worker = DispatchQueue(label: "indexator.clip", qos: .userInitiated)
@@ -50,7 +50,7 @@ final class SearchEngine: ObservableObject {
 
     private init() {
         do {
-            database = try IndexDatabase(model: MobileCLIP.variant)
+            database = try IndexDatabase(model: ClipModel.variant)
             indexedCount = database?.count ?? 0
         } catch {
             log.add("База индекса не открылась: \(error.localizedDescription)")
@@ -90,8 +90,7 @@ final class SearchEngine: ObservableObject {
             await indexTask?.value
         }
         if let query = defaults.string(forKey: "autoQuery"), !query.isEmpty {
-            let parsed = QueryParser.parse(query)
-            await search(parsed: parsed, modelText: parsed.text, shownQuery: query)
+            await search(text: query)
         }
     }
 
@@ -100,12 +99,12 @@ final class SearchEngine: ObservableObject {
         modelState = .loading
         let start = CFAbsoluteTimeGetCurrent()
         do {
-            let loaded = try await onWorker { try MobileCLIP() }
+            let loaded = try await onWorker { try ClipModel() }
             clip = loaded
             modelSummary = loaded.summary
             modelLoadSeconds = CFAbsoluteTimeGetCurrent() - start
             modelState = .ready
-            log.add(String(format: "Модель %@ загружена за %.1f с", MobileCLIP.variant, modelLoadSeconds ?? 0))
+            log.add(String(format: "Модель %@ загружена за %.1f с", ClipModel.variant, modelLoadSeconds ?? 0))
             log.add(loaded.summary)
         } catch {
             modelState = .failed(error.localizedDescription)
@@ -249,23 +248,46 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Search
 
-    /// `modelText` is what goes into the CLIP text encoder (English); `parsed.text` is the
+    /// Main entry point: any language, date words are turned into a filter.
+    func search(text: String) async {
+        let parsed = QueryParser.parse(text)
+        await search(parsed: parsed, modelText: parsed.text, shownQuery: text)
+    }
+
+    /// `modelText` is what goes into the CLIP text encoder; `parsed.text` is the
     /// user's own words without the date part, used for keyword search on OCR text.
     /// `via` says how the Russian query became English, shown above the results.
     func search(parsed: ParsedQuery, modelText: String, shownQuery: String, via: String? = nil) async {
         guard let clip, let database else { return }
         let start = CFAbsoluteTimeGetCurrent()
 
+        let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        log.add("Запрос «\(shownQuery)»: ищу…")
+
+        // Encode first. Indexing may add rows while we wait, so every row-based
+        // array below is built after this point from one snapshot of the count.
+        var vector: [Float] = []
+        if !semantic.isEmpty {
+            do {
+                // CLIP was trained on captions, so "a photo of parrot" matches better than "parrot".
+                let prompt = Self.prompt(for: semantic)
+                vector = try await onWorker { try clip.embed(text: prompt) }
+            } catch {
+                lastQueryInfo = "Ошибка: \(error.localizedDescription)"
+                log.add("Ошибка кодирования запроса: \(error)")
+                return
+            }
+        }
+        let encoded = CFAbsoluteTimeGetCurrent()
+        let count = min(database.count, database.ids.count, database.created.count, database.months.count)
+
         // Candidate rows after the date filter.
         var allowed: [Bool]? = nil
         if let filter = parsed.dateFilter {
-            allowed = (0..<database.count).map { filter.matches(seconds: database.created[$0], month: database.months[$0]) }
+            allowed = (0..<count).map { filter.matches(seconds: database.created[$0], month: database.months[$0]) }
         }
-        func isAllowed(_ row: Int) -> Bool { allowed?[row] ?? true }
+        func isAllowed(_ row: Int) -> Bool { row >= 0 && row < count && (allowed?[row] ?? true) }
 
-        let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // CLIP only understands English: with Russian left over, rely on words found on photos.
-        let untranslated = semantic.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil
         var info: [String] = []
         if let filter = parsed.dateFilter {
             let n = allowed?.filter { $0 }.count ?? 0
@@ -274,7 +296,7 @@ final class SearchEngine: ObservableObject {
 
         if semantic.isEmpty {
             // Only a date was given: newest first inside the filter.
-            let rows = (0..<database.count).filter(isAllowed)
+            let rows = (0..<count).filter(isAllowed)
                 .sorted { database.created[$0] > database.created[$1] }
                 .prefix(120)
             results = rows.map { SearchHit(id: database.ids[$0], score: 0, textMatch: false) }
@@ -283,18 +305,17 @@ final class SearchEngine: ObservableObject {
         }
 
         do {
-            // CLIP was trained on captions, so "a photo of a parrot" matches better than "parrot".
-            let prompt = Self.prompt(for: semantic)
-            let vector = try await onWorker { try clip.embed(text: prompt) }
-            let encoded = CFAbsoluteTimeGetCurrent()
-            let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: database.count)
+            let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: count)
+            func score(_ row: Int) -> Float { row < scores.count ? scores[row] : 0 }
 
             // Keep only photos reasonably close to the best one, so a rare subject
             // does not get padded with unrelated photos.
             let candidates = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }
-            let best = candidates.first.map { scores[$0] } ?? 0
-            let cutoff = max(best - 0.05, best * 0.82)
-            let clipRanked = untranslated ? [] : Array(candidates.prefix { scores[$0] >= cutoff }.prefix(400))
+            let best = candidates.first.map(score) ?? 0
+            // Below about 0.23 ViT-B/32 is guessing (in tests an irrelevant query like
+            // "билет на поезд" topped out at 0.22), so such photos are not shown at all.
+            let cutoff = max(best - 0.05, best * 0.82, Self.minimumScore)
+            let clipRanked = Array(candidates.prefix { score($0) >= cutoff }.prefix(400))
             let words = (parsed.text + " " + semantic).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
             let textRanked = database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
@@ -304,25 +325,26 @@ final class SearchEngine: ObservableObject {
             for (rank, row) in clipRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             let top = fused.sorted { $0.value > $1.value }.prefix(90)
-            results = top.map { SearchHit(id: database.ids[$0.key], score: scores[$0.key], textMatch: textSet.contains($0.key)) }
+            results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
 
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }
-            info.insert("Ищу: «\(untranslated ? parsed.text : semantic)»", at: 0)
-            if !untranslated { info.append(String(format: "похожих %d, лучший %.2f", clipRanked.count, best)) }
+            info.insert("Ищу: «\(semantic)»", at: 0)
+            info.append(String(format: "похожих %d, лучший %.2f", clipRanked.count, best))
             info.append(String(format: "текст %.0f мс, поиск %.0f мс", (encoded - start) * 1000, (done - encoded) * 1000))
             if !textRanked.isEmpty { info.append("совпадений в тексте на фото: \(textRanked.count)") }
             lastQueryInfo = info.joined(separator: " · ")
             log.add("Запрос «\(shownQuery)» → «\(semantic)»: \(lastQueryInfo ?? "")")
-        } catch {
-            lastQueryInfo = "Ошибка: \(error.localizedDescription)"
-            log.add("Ошибка поиска: \(error)")
         }
     }
 
     // MARK: - Helpers
 
+    nonisolated static let minimumScore: Float = 0.23
+
     nonisolated static func prompt(for text: String) -> String {
+        // The multilingual text tower takes other languages as they are.
+        if text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil { return text }
         let lower = text.lowercased()
         if lower.hasPrefix("a photo") || lower.hasPrefix("photo of") || lower.split(separator: " ").count > 6 {
             return text
