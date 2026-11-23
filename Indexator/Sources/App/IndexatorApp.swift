@@ -12,6 +12,7 @@ struct IndexatorApp: App {
     @State private var tab = UserDefaults.standard.string(forKey: "uiTab") ?? "search"
 
     init() {
+        _ = DocumentEngine.shared  // starts watching document folders
         BGTaskScheduler.shared.register(forTaskWithIdentifier: SearchEngine.backgroundTaskId, using: nil) { task in
             guard let task = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
@@ -38,6 +39,9 @@ struct IndexatorApp: App {
                 IndexView()
                     .tabItem { Label("Индекс", systemImage: "square.stack.3d.up") }
                     .tag("index")
+                DocumentsTab()
+                    .tabItem { Label("Документы", systemImage: "doc.text.magnifyingglass") }
+                    .tag("docs")
                 LogView()
                     .tabItem { Label("Журнал", systemImage: "doc.text") }
                     .tag("log")

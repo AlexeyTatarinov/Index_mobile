@@ -40,6 +40,7 @@ struct SearchView: View {
                             .foregroundStyle(.secondary)
                             .padding(.horizontal)
                     }
+                    DocumentResultsSection()
                     LazyVGrid(columns: columns, spacing: 2) {
                         ForEach(engine.results) { hit in
                             Button {
@@ -134,6 +135,7 @@ struct SearchView: View {
     private func submit() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        Task { await DocumentEngine.shared.search(text) }
         let parsed = QueryParser.parse(text)
         if parsed.text.range(of: "\\p{Cyrillic}", options: .regularExpression) != nil {
             pendingQuery = text

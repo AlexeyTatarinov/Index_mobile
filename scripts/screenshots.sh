@@ -46,4 +46,8 @@ shot 2-search 25 -uiTab search -autoQuery "a dog"
 shot 3-search-mountains 25 -uiTab search -autoQuery "mountains and a lake"
 shot 4-search-date 25 -uiTab search -autoQuery "a dog 2026"
 shot 5-log 10 -uiTab log -autoQuery "a dog"
+shot 6-docs 60 -uiTab docs -docsDemo YES
+shot 7-docs-search 30 -uiTab search -docsDemo YES -autoQuery "как вернуть налог за квартиру"
+shot 8-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"
+shot 9-docs-log 25 -uiTab log -docsDemo YES -autoQuery "аренда"
 ls -la "$OUT"
