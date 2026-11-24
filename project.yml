@@ -6,14 +6,16 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.0"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: 0.3.0
+    CURRENT_PROJECT_VERSION: "15"
 targets:
   Indexator:
     type: application
     platform: iOS
     sources:
       - Indexator/Sources
+      - Shared
+      - Indexator/Assets.xcassets
       # Downloaded and compiled in CI (see .github/workflows/build.yml), kept as a folder reference.
       - path: Indexator/Resources/Models
         type: folder
@@ -23,21 +25,52 @@ targets:
         CFBundleDisplayName: Indexator
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         NSPhotoLibraryUsageDescription: Indexator строит на телефоне поисковый индекс по твоим фото. Ничего не отправляется в интернет.
         NSMicrophoneUsageDescription: Микрофон нужен для голосового поиска. Запись не сохраняется.
         NSSpeechRecognitionUsageDescription: Распознавание речи превращает голосовой запрос в текст, по возможности прямо на телефоне.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        UIBackgroundModes: [processing]
-        BGTaskSchedulerPermittedIdentifiers: [io.github.alexeytatarinov.indexator.index]
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.alexeytatarinov.indexator
+            CFBundleURLSchemes: [indexator]
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - io.github.alexeytatarinov.indexator.index
+          - io.github.alexeytatarinov.indexator.refresh
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: IndexatorWidget
+        embed: true
     scheme:
       testTargets:
         - IndexatorTests
         - IndexatorUITests
+  IndexatorWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget/Sources
+      - Shared
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Indexator
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.alexeytatarinov.indexator.widget
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
   IndexatorTests:
     type: bundle.unit-test
     platform: iOS
