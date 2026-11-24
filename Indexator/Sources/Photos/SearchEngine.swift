@@ -559,7 +559,8 @@ final class SearchEngine: ObservableObject {
             }
             let top = fused.sorted { ($0.value, adjusted($0.key)) > ($1.value, adjusted($1.key)) }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
-            VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
+            VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best,
+                                      references: referenceVectors)
 
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }

@@ -213,11 +213,33 @@ final class VideoEngine: ObservableObject {
 
     /// `photoBest` is the best photo score for the same query: videos must be about
     /// as close as the photos shown, so a query about dogs does not bring random videos.
-    func search(vector: [Float], words: [String], dateFilter: DateFilter?, photoBest: Float) {
+    private var frameBaselineCache: (rows: Int, values: [Float]) = (0, [])
+
+    private func frameBaselines(references: [[Float]], rows: Int) -> [Float] {
+        guard let store, !references.isEmpty, rows > 0 else { return [] }
+        if frameBaselineCache.rows == rows, frameBaselineCache.values.count == rows { return frameBaselineCache.values }
+        var sum = [Float](repeating: 0, count: rows)
+        for reference in references {
+            let s = VectorMath.scores(query: reference, matrix: store.frameVectors, rows: rows)
+            for i in 0..<min(rows, s.count) { sum[i] += s[i] }
+        }
+        let n = Float(references.count)
+        let values = sum.map { $0 / n }
+        frameBaselineCache = (rows, values)
+        return values
+    }
+
+    /// `references` are the neutral-caption vectors photo search uses: each frame's average
+    /// similarity to them is subtracted, the same "matches anything" correction as for photos.
+    func search(vector: [Float], words: [String], dateFilter: DateFilter?, photoBest: Float, references: [[Float]] = []) {
         guard enabled, let store, store.count > 0 else { return clearResults() }
         let videos = store.count
         let frameRows = min(store.frameCount, store.frameVideo.count, store.frameTime.count)
-        let scores = VectorMath.scores(query: vector, matrix: store.frameVectors, rows: frameRows)
+        var scores = VectorMath.scores(query: vector, matrix: store.frameVectors, rows: frameRows)
+        let baseline = frameBaselines(references: references, rows: frameRows)
+        if baseline.count == scores.count {
+            for i in scores.indices { scores[i] -= baseline[i] }
+        }
 
         func allowed(_ row: Int) -> Bool {
             guard row >= 0 && row < videos else { return false }
@@ -238,9 +260,18 @@ final class VideoEngine: ObservableObject {
 
         let ranked = best.sorted { $0.value.score > $1.value.score }
         let top = ranked.first?.value.score ?? 0
-        let reference = max(top, photoBest)
-        let cutoff = max(top - 0.05, top * 0.82, reference - 0.05)
-        let clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
+        let clipRanked: [Int]
+        if baseline.isEmpty {
+            // No reference captions yet: the older raw-score rule.
+            let reference = max(top, photoBest)
+            let cutoff = max(top - 0.05, top * 0.82, reference - 0.05)
+            clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
+        } else if top < SearchEngine.minimumAdjusted {
+            clipRanked = []   // nothing in the videos really matches (a waterfall for «билет на поезд»)
+        } else {
+            let cutoff = max(top - SearchEngine.adjustedMargin, top * 0.5)
+            clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
+        }
 
         // Words said in the video.
         let spoken = store.speechMatches(words: words).filter { allowed($0.row) }
