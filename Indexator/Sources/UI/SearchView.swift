@@ -33,7 +33,11 @@ struct SearchView: View {
         let documents = docs.results.map(ResultItem.init(document:))
         let photos = engine.results
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
-            .map(ResultItem.init(photo:))
+            .map { hit -> ResultItem in
+                var item = ResultItem(photo: hit)
+                item.placeName = engine.placeName(for: hit.id)
+                return item
+            }
         let emails = mail.results.map(ResultItem.init(mail:))
         let videos = video.results
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
