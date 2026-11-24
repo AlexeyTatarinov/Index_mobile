@@ -10,15 +10,18 @@ import Foundation
 final class MailEngine: ObservableObject {
     static let shared = MailEngine()
 
+    /// Raw value is the number of days; 0 = all mail, -1 = since a chosen date.
     enum SyncPeriod: Int, CaseIterable, Identifiable {
-        case months3 = 3, year1 = 12, years3 = 36, all = 0
+        case week = 7, month = 30, months3 = 90, year1 = 365, all = 0, custom = -1
         var id: Int { rawValue }
         var title: String {
             switch self {
+            case .week: return "Неделя"
+            case .month: return "Месяц"
             case .months3: return "3 месяца"
             case .year1: return "1 год"
-            case .years3: return "3 года"
             case .all: return "Вся почта"
+            case .custom: return "С выбранной даты"
             }
         }
     }
@@ -30,8 +33,12 @@ final class MailEngine: ObservableObject {
     @Published var clientId: String = UserDefaults.standard.string(forKey: "mail.clientId") ?? "" {
         didSet { UserDefaults.standard.set(clientId, forKey: "mail.clientId") }
     }
-    @Published var period: SyncPeriod = SyncPeriod(rawValue: UserDefaults.standard.object(forKey: "mail.period") as? Int ?? 12) ?? .year1 {
-        didSet { UserDefaults.standard.set(period.rawValue, forKey: "mail.period") }
+    @Published var period: SyncPeriod = SyncPeriod(rawValue: UserDefaults.standard.object(forKey: "mail.periodDays") as? Int ?? 30) ?? .month {
+        didSet { UserDefaults.standard.set(period.rawValue, forKey: "mail.periodDays") }
+    }
+    @Published var customStart: Date = UserDefaults.standard.object(forKey: "mail.customStart") as? Date
+        ?? Calendar.current.date(byAdding: .day, value: -14, to: Date())! {
+        didSet { UserDefaults.standard.set(customStart, forKey: "mail.customStart") }
     }
     @Published var skipPromotions: Bool = UserDefaults.standard.object(forKey: "mail.skipPromotions") as? Bool ?? true {
         didSet { UserDefaults.standard.set(skipPromotions, forKey: "mail.skipPromotions") }
@@ -131,9 +138,19 @@ final class MailEngine: ObservableObject {
     // MARK: - Sync
 
     /// Gmail search query for the chosen period, without spam, trash and (optionally) promotions.
-    nonisolated static func gmailQuery(period: SyncPeriod, skipPromotions: Bool) -> String {
+    nonisolated static func gmailQuery(period: SyncPeriod, since: Date? = nil, skipPromotions: Bool) -> String {
         var parts = ["-in:spam", "-in:trash", "-in:chats"]
-        if period != .all { parts.append("newer_than:\(period.rawValue)m") }
+        switch period {
+        case .all:
+            break
+        case .custom:
+            if let since {
+                let c = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: since)
+                parts.append(String(format: "after:%04d/%02d/%02d", c.year ?? 2000, c.month ?? 1, c.day ?? 1))
+            }
+        default:
+            parts.append("newer_than:\(period.rawValue)d")
+        }
         if skipPromotions { parts += ["-category:promotions", "-category:social"] }
         return parts.joined(separator: " ")
     }
@@ -142,7 +159,7 @@ final class MailEngine: ObservableObject {
         guard !isSyncing, isConnected, let store else { return }
         isSyncing = true
         lastError = nil
-        let query = Self.gmailQuery(period: period, skipPromotions: skipPromotions)
+        let query = Self.gmailQuery(period: period, since: customStart, skipPromotions: skipPromotions)
         syncTask = Task { [weak self] in
             guard let self else { return }
             await self.runSync(store: store, query: query)
@@ -309,6 +326,19 @@ final class MailEngine: ObservableObject {
 
     func message(id: String) async -> MailMessage? {
         await store?.message(id: id)
+    }
+
+    /// Links of an email downloaded before links were stored: fetched once from Gmail.
+    func fetchMissingLinks(id: String) async -> [MailLink] {
+        guard isConnected, let store else { return [] }
+        do {
+            let parsed = MailParser.parse(try await GmailClient(auth: auth).message(id: id))
+            await store.setLinks(parsed.links, for: id)
+            return parsed.links
+        } catch {
+            log.add("Ссылки письма не получены: \(error.localizedDescription)")
+            return []
+        }
     }
 
     // MARK: - CI / demo

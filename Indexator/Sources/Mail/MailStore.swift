@@ -61,6 +61,8 @@ actor MailStore {
                 embedded_model TEXT
             )
             """)
+        // Added after the first release; fails harmlessly when the column exists.
+        try? Self.exec(handle, "ALTER TABLE messages ADD COLUMN links TEXT NOT NULL DEFAULT ''")
         try Self.exec(handle, """
             CREATE VIRTUAL TABLE IF NOT EXISTS mail_fts USING fts5(
                 id UNINDEXED, subject, sender, body, tokenize = 'unicode61 remove_diacritics 2'
@@ -75,6 +77,23 @@ actor MailStore {
                 PRIMARY KEY(message_id, idx)
             )
             """)
+        // v2: FTS text has ё folded to е (FTS5 only folds Latin diacritics). Rebuild once.
+        var version: Int32 = 0
+        var vstmt: OpaquePointer?
+        if sqlite3_prepare_v2(handle, "PRAGMA user_version", -1, &vstmt, nil) == SQLITE_OK, sqlite3_step(vstmt) == SQLITE_ROW {
+            version = sqlite3_column_int(vstmt, 0)
+        }
+        sqlite3_finalize(vstmt)
+        if version < 2 {
+            let fold = { (column: String) in "replace(replace(\(column), 'ё', 'е'), 'Ё', 'Е')" }
+            try Self.exec(handle, "DELETE FROM mail_fts")
+            try Self.exec(handle, """
+                INSERT INTO mail_fts(id, subject, sender, body)
+                SELECT id, \(fold("subject")), \(fold("sender")), \(fold("body || char(10) || replace(attachments, char(10), ' ')"))
+                FROM messages
+                """)
+            try Self.exec(handle, "PRAGMA user_version = 2")
+        }
         // Load ids and dates (cheap) so sync can skip what is already here.
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(handle, "SELECT id, date FROM messages", -1, &stmt, nil) == SQLITE_OK {
@@ -100,19 +119,20 @@ actor MailStore {
         defer { try? exec("COMMIT") }
         for m in messages where !knownIds.contains(m.id) {
             try withStatement("""
-                INSERT OR REPLACE INTO messages(id, thread_id, subject, sender, recipients, date, snippet, body, labels, attachments)
-                VALUES(?,?,?,?,?,?,?,?,?,?)
+                INSERT OR REPLACE INTO messages(id, thread_id, subject, sender, recipients, date, snippet, body, labels, attachments, links)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 """) { stmt in
                 bind(stmt, 1, m.id); bind(stmt, 2, m.threadId); bind(stmt, 3, m.subject)
                 bind(stmt, 4, m.sender); bind(stmt, 5, m.recipients)
                 if let d = m.date { sqlite3_bind_double(stmt, 6, d.timeIntervalSince1970) } else { sqlite3_bind_null(stmt, 6) }
                 bind(stmt, 7, m.snippet); bind(stmt, 8, m.body)
                 bind(stmt, 9, m.labels.joined(separator: ",")); bind(stmt, 10, m.attachments.joined(separator: "\n"))
+                bind(stmt, 11, Self.encode(m.links))
                 try step(stmt)
             }
             try withStatement("INSERT INTO mail_fts(id, subject, sender, body) VALUES(?,?,?,?)") { stmt in
-                bind(stmt, 1, m.id); bind(stmt, 2, m.subject); bind(stmt, 3, m.sender)
-                bind(stmt, 4, m.body + (m.attachments.isEmpty ? "" : "\n" + m.attachments.joined(separator: " ")))
+                bind(stmt, 1, m.id); bind(stmt, 2, MailQuery.fold(m.subject)); bind(stmt, 3, MailQuery.fold(m.sender))
+                bind(stmt, 4, MailQuery.fold(m.body + (m.attachments.isEmpty ? "" : "\n" + m.attachments.joined(separator: " "))))
                 try step(stmt)
             }
             knownIds.insert(m.id)
@@ -200,7 +220,7 @@ actor MailStore {
 
     /// Hybrid search: FTS5 words + embedding similarity, fused by reciprocal rank.
     /// `queryVector` is nil when no embedder is available.
-    func search(words: [String], queryVector: [Float]?, model: String?, filter: DateFilter?, limit: Int = 60) -> [MailHit] {
+    func search(words: [String], queryVector: [Float]?, model: String?, filter: DateFilter?, limit: Int = 30) -> [MailHit] {
         let calendar = Calendar.current
         func allowed(_ id: String) -> Bool {
             guard let filter else { return true }
@@ -209,7 +229,14 @@ actor MailStore {
             return filter.matches(seconds: seconds, month: month)
         }
 
-        let textRanked = ftsMatches(words: words).filter(allowed)
+        let terms = MailQuery.terms(from: words)
+        // All words must be present; only when nothing has them all, any word will do.
+        var textRanked = ftsMatches(terms: terms, all: true).filter(allowed)
+        let allWords = !textRanked.isEmpty || terms.count < 2
+        if textRanked.isEmpty && terms.count >= 2 {
+            textRanked = ftsMatches(terms: terms, all: false).filter(allowed)
+        }
+
         var semantic: [String] = []
         var best: [String: Float] = [:]
         if let queryVector, let model {
@@ -222,34 +249,41 @@ actor MailStore {
                 }
                 let ranked = best.filter { allowed($0.key) }.sorted { $0.value > $1.value }
                 if let top = ranked.first?.value {
-                    // Keep emails reasonably close to the best one.
-                    semantic = ranked.prefix { $0.value >= top - 0.08 }.prefix(200).map(\.key)
+                    // e5 similarities are compressed (most emails score 0.75-0.85), so only a
+                    // narrow band under the best match is really about the query. When the
+                    // words already matched, meaning alone has to be even closer to the top.
+                    let band: Float = textRanked.isEmpty ? MailQuery.semanticBand : MailQuery.semanticBandWithWords
+                    semantic = ranked.prefix { $0.value >= top - band }.prefix(MailQuery.semanticLimit).map(\.key)
                 }
             }
         }
 
-        if words.isEmpty && queryVector == nil {
+        if terms.isEmpty && queryVector == nil {
             // Only a date (or nothing): newest first.
             let ids = dates.filter { allowed($0.key) }.sorted { $0.value > $1.value }.prefix(limit).map(\.key)
             return hits(for: ids, scores: [:], textMatches: [])
         }
 
+        // Emails found both ways first, then by words, then by meaning only.
+        let textSet = Set(textRanked)
+        let semanticSet = Set(semantic)
         var fused: [String: Double] = [:]
-        for (rank, id) in textRanked.enumerated() { fused[id, default: 0] += 1.0 / Double(60 + rank) }
-        for (rank, id) in semantic.enumerated() { fused[id, default: 0] += 1.0 / Double(60 + rank) }
+        for (rank, id) in textRanked.enumerated() {
+            fused[id, default: 0] += (allWords ? 1.0 : 0.5) / Double(20 + rank)
+        }
+        for (rank, id) in semantic.enumerated() { fused[id, default: 0] += 1.0 / Double(20 + rank) }
+        for id in textSet.intersection(semanticSet) { fused[id, default: 0] += 1 }
         let top = fused.sorted { $0.value > $1.value }.prefix(limit).map(\.key)
-        return hits(for: top, scores: best, textMatches: Set(textRanked))
+        return hits(for: top, scores: best, textMatches: textSet)
     }
 
-    /// Ids whose subject/sender/body contain the words, best first (bm25, subject weighs most).
-    private func ftsMatches(words: [String]) -> [String] {
-        let terms = words
-            .map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }
-            .filter { $0.count >= 3 || ($0.count == 2 && $0.allSatisfy(\.isNumber)) }
+    /// Ids whose subject/sender/body contain the terms (as prefixes), best first.
+    /// bm25 weights: subject 5, sender 3, body 1.
+    private func ftsMatches(terms: [String], all: Bool) -> [String] {
         guard !terms.isEmpty else { return [] }
-        let match = terms.map { "\"\($0)\"*" }.joined(separator: " OR ")
+        let match = terms.map { "\"\($0)\"*" }.joined(separator: all ? " AND " : " OR ")
         var ids: [String] = []
-        try? withStatement("SELECT id FROM mail_fts WHERE mail_fts MATCH ? ORDER BY bm25(mail_fts, 0.0, 5.0, 3.0, 1.0) LIMIT 300") { stmt in
+        try? withStatement("SELECT id FROM mail_fts WHERE mail_fts MATCH ? ORDER BY bm25(mail_fts, 0.0, 5.0, 3.0, 1.0) LIMIT 200") { stmt in
             bind(stmt, 1, match)
             while sqlite3_step(stmt) == SQLITE_ROW {
                 if let c = sqlite3_column_text(stmt, 0) { ids.append(String(cString: c)) }
@@ -283,9 +317,30 @@ actor MailStore {
         dates.values.max().map { Date(timeIntervalSince1970: $0) }
     }
 
+    /// Links of emails downloaded before links were stored.
+    func setLinks(_ links: [MailLink], for id: String) {
+        try? withStatement("UPDATE messages SET links = ? WHERE id = ?") { stmt in
+            bind(stmt, 1, Self.encode(links)); bind(stmt, 2, id); try step(stmt)
+        }
+    }
+
+    /// One link per line: "title<TAB>url".
+    static func encode(_ links: [MailLink]) -> String {
+        links.map { $0.title.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
+            + "\t" + $0.url.absoluteString }.joined(separator: "\n")
+    }
+
+    static func decodeLinks(_ text: String) -> [MailLink] {
+        text.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, let url = URL(string: String(parts[1])) else { return nil }
+            return MailLink(title: String(parts[0]), url: url)
+        }
+    }
+
     // MARK: - SQLite helpers
 
-    private static let columns = "id, thread_id, subject, sender, recipients, date, snippet, body, labels, attachments"
+    private static let columns = "id, thread_id, subject, sender, recipients, date, snippet, body, labels, attachments, links"
 
     private static func message(from stmt: OpaquePointer?) -> MailMessage {
         func text(_ i: Int32) -> String { sqlite3_column_text(stmt, i).map { String(cString: $0) } ?? "" }
@@ -294,7 +349,8 @@ actor MailStore {
             id: text(0), threadId: text(1), subject: text(2), sender: text(3), recipients: text(4), date: date,
             snippet: text(6), body: text(7),
             labels: text(8).split(separator: ",").map(String.init),
-            attachments: text(9).split(separator: "\n").map(String.init)
+            attachments: text(9).split(separator: "\n").map(String.init),
+            links: decodeLinks(text(10))
         )
     }
 
