@@ -24,7 +24,6 @@ struct ResultsView: View {
     var onConnectMail: () -> Void = {}
 
     @State private var kindFilter: ResultItem.Kind?
-    @State private var onlyText = false
     @State private var showInfo = false
     @State private var expanded: Set<String> = []
 
@@ -36,7 +35,7 @@ struct ResultsView: View {
 
     private var filtered: [ResultItem] {
         items.filter { item in
-            (kindFilter == nil || item.kind == kindFilter) && (!onlyText || item.textMatch)
+            kindFilter == nil || item.kind == kindFilter
         }
     }
 
@@ -50,7 +49,6 @@ struct ResultsView: View {
                     .padding(.horizontal, 16)
                     .onTapGesture { withAnimation { showInfo.toggle() } }
             }
-            filters
             if filtered.isEmpty && hints.isEmpty {
                 ContentUnavailableView(
                     "Ничего не нашлось",
@@ -63,33 +61,6 @@ struct ResultsView: View {
             }
         }
         .padding(.top, 4)
-    }
-
-    @ViewBuilder
-    private var filters: some View {
-        let textCount = items.filter(\.textMatch).count
-        if kinds.count > 1 || textCount > 0 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    if kinds.count > 1 {
-                        Chip(title: "Все \(items.count)", isSelected: kindFilter == nil) { kindFilter = nil }
-                        ForEach(kinds, id: \.self) { kind in
-                            Chip(
-                                title: "\(kind.title) \(items.filter { $0.kind == kind }.count)",
-                                systemImage: kind.systemImage,
-                                isSelected: kindFilter == kind
-                            ) { kindFilter = kindFilter == kind ? nil : kind }
-                        }
-                    }
-                    if textCount > 0 {
-                        Chip(title: "С текстом \(textCount)", systemImage: "text.viewfinder", isSelected: onlyText) {
-                            onlyText.toggle()
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
     }
 
     /// The groups shown, in order: what the query is after comes first.

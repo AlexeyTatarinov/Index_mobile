@@ -74,6 +74,7 @@ shot 10-mail-search 20 -uiTab search -mailDemo YES -autoQuery "билет на �
 shot 11-video-search 25 -uiTab search -autoQuery "собака" -ui.resultLayout cards
 shot 12-video-player 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind video
 shot 13-resume-no-docs 25 -uiTab search -autoQuery "моё резюме"
+shot 14-scope-docs 30 -uiTab search -docsDemo YES -ui.searchScope documents -autoQuery "договор аренды"
 ls -la "$OUT"
 # Screenshots are taken either way; a search-quality miss still fails the job.
 exit $EVAL_STATUS
