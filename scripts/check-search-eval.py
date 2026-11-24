@@ -30,9 +30,12 @@ for row in got["queries"]:
             problems.append(f"{f} should not be found")
     if q.get("empty") and files:
         problems.append(f"expected nothing, got {len(files)}")
+    videos = row.get("videos", 0)
+    if "videos" in q and videos != q["videos"]:
+        problems.append(f"expected {q['videos']} videos, got {videos}")
     failures += bool(problems)
     mark = "FAIL" if problems else "ok  "
-    print(f"{mark} «{row['query']}» [{len(files)}] {shown}")
+    print(f"{mark} «{row['query']}» [{len(files)}, videos {row.get('videos', 0)}] {shown}")
     if problems:
         print("     " + "; ".join(problems))
     print("     " + row["info"])

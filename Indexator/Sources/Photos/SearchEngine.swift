@@ -144,6 +144,7 @@ final class SearchEngine: ObservableObject {
             report.append([
                 "query": query,
                 "info": lastQueryInfo ?? "",
+                "videos": VideoEngine.shared.results.count,
                 "hits": results.prefix(20).map {
                     ["file": fileName($0.id), "score": Double($0.score), "adj": Double(lastAdjusted[$0.id] ?? 0), "text": $0.textMatch]
                 },
