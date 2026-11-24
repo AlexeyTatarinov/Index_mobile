@@ -61,11 +61,12 @@ final class PlaceIndex {
                 latitude: lat, longitude: lon, population: Int(f[2]) ?? 0, country: String(f[3]),
                 name: String(f[4]), russianName: String(f[5])
             ))
-            for name in f[6].split(separator: "|") {
-                let n = String(name)
-                self.byName[n, default: []].append(index)
-                if Self.isCyrillic(n) { self.byStem[Self.stem(n), default: []].append(index) }
+            var stems: Set<String> = []
+            for name in Set(f[6].split(separator: "|").map(String.init)) {
+                self.byName[name, default: []].append(index)
+                if Self.isCyrillic(name) { stems.insert(Self.stem(name)) }
             }
+            for stem in stems { self.byStem[stem, default: []].append(index) }
             self.grid[Self.cell(lat, lon), default: []].append(index)
         }
     }

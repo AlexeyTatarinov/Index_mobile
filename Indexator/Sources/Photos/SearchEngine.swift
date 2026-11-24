@@ -518,7 +518,7 @@ final class SearchEngine: ObservableObject {
     /// returns the rows inside it. Nil when no photo was taken in any city of that name.
     private static func photosNear(_ match: PlaceMatch, in database: IndexDatabase) -> (Place, [Int])? {
         var best: (Place, [Int])?
-        for candidate in match.places.prefix(8) {
+        for candidate in match.places.prefix(30) {
             let radius = PlaceIndex.radiusKm(for: candidate)
             var rows: [Int] = []
             for row in 0..<min(database.latitudes.count, database.longitudes.count) {

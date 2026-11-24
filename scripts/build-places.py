@@ -25,17 +25,23 @@ with open(sys.argv[1], encoding="utf-8") as src, open(sys.argv[2], "w", encoding
             continue
         name, ascii_name, alternates = f[1], f[2], f[3].split(",") if f[3] else []
         lat, lon, country, population = f[4], f[5], f[8], f[14] or "0"
-        names, russian = [], ""
+        names, russian_options = [], []
         for candidate in [name, ascii_name] + alternates:
             if not candidate or not LATIN_OR_CYRILLIC.match(candidate):
                 continue
-            if not russian and RUSSIAN.match(candidate):
-                russian = candidate
+            if RUSSIAN.match(candidate):
+                russian_options.append(candidate)
             n = norm(candidate)
             if len(n) >= 3 and n not in names:
                 names.append(n)
+        # GeoNames does not tag languages; a single word, then the longest spelling,
+        # picks «Валенсия» over the case form «Валенси».
+        russian = ""
+        if russian_options:
+            single = [r for r in russian_options if " " not in r and "-" not in r] or russian_options
+            russian = max(single, key=len)
         if not names:
             continue
-        out.write("\t".join([lat, lon, population, country, name, russian, "|".join(names[:40])]) + "\n")
+        out.write("\t".join([lat, lon, population, country, name, russian, "|".join(names)]) + "\n")
         rows += 1
 print(f"places: {rows}")
