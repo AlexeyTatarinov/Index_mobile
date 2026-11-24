@@ -121,7 +121,6 @@
 
 ## photo-quality
 
-<img src="photo-quality/0-search-eval.png" width="260" alt="0-search-eval.png">
 <img src="photo-quality/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
 <img src="photo-quality/10-mail-search.png" width="260" alt="10-mail-search.png">
 <img src="photo-quality/11-video-search.png" width="260" alt="11-video-search.png">
