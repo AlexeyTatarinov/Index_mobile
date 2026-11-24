@@ -29,7 +29,8 @@ final class PlaceIndexTests: XCTestCase {
 
         let near = try XCTUnwrap(places.nearest(latitude: 39.4699, longitude: -0.3763))
         XCTAssertEqual(near.name, "Valencia")
-        XCTAssertEqual(near.displayName, "Валенсия")
+        // GeoNames lists several Russian spellings; any native one will do, not «Валенсиа».
+        XCTAssertTrue(["Валенсия", "Валенция"].contains(near.displayName), near.displayName)
     }
 
     func testConceptWordsMapToLabels() throws {
