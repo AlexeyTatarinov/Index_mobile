@@ -11,4 +11,7 @@ build-sim/
 sample-photos/
 screenshots/
 model-cache/
+model-cache-e5/
 shots-wt/
+Widget/Info.plist
+test.log

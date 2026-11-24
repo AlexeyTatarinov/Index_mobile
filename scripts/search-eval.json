@@ -1,0 +1,195 @@
+{
+ "comment": "Reference queries over the CI sample photos (picsum ids; see samples/ on the screenshots branch). expect: each must be in the top `within` results. forbid: must not appear. empty: nothing should be shown. Dogs: 237 black puppy, 1025 and 1062 pugs in blankets, 659 husky, 169 dachshunds. Others: 1003 fawn, 1074 lioness, 433 bear, 582 coyote, 219 leopard, 200 highland cow, 1084 walruses, 1069 jellyfish, 1080 strawberries, 1060 coffee brewing, 1011 woman in canoe on a lake, 1015 fjord, 1035 waterfall, 1043 mountains and river, 1050 sea cliffs. IMG_* are the simulator's own photos (flowers, landscapes). The simulator's Vision classifier returns the same labels for every photo, so label-based rescue (еда, природа on device) is not testable here; клубника/еда are only checked for false hits. videos: number of videos expected; the sample video (walk.mp4) has a puppy at 8-12 s between landscapes.",
+ "queries": [
+  {
+   "query": "собака",
+   "expect": [
+    "237.jpg",
+    "1025.jpg",
+    "1062.jpg",
+    "659.jpg"
+   ],
+   "within": 6,
+   "forbid": [
+    "1003.jpg",
+    "1074.jpg",
+    "1069.jpg",
+    "1080.jpg",
+    "1060.jpg",
+    "433.jpg",
+    "1084.jpg"
+   ],
+   "videos": 1
+  },
+  {
+   "query": "щенок",
+   "expect": [
+    "237.jpg"
+   ],
+   "within": 3,
+   "forbid": [
+    "1074.jpg",
+    "1069.jpg",
+    "1080.jpg",
+    "1003.jpg"
+   ],
+   "videos": 1
+  },
+  {
+   "query": "a dog",
+   "expect": [
+    "237.jpg",
+    "1025.jpg",
+    "1062.jpg",
+    "659.jpg"
+   ],
+   "within": 6,
+   "forbid": [
+    "1003.jpg",
+    "1074.jpg",
+    "1069.jpg",
+    "1080.jpg",
+    "1060.jpg",
+    "433.jpg"
+   ]
+  },
+  {
+   "query": "попугай",
+   "empty": true,
+   "comment": "no parrots in the samples",
+   "videos": 0
+  },
+  {
+   "query": "еда",
+   "forbid": [
+    "1003.jpg",
+    "1074.jpg",
+    "237.jpg",
+    "1069.jpg",
+    "659.jpg"
+   ]
+  },
+  {
+   "query": "клубника",
+   "forbid": [
+    "1069.jpg",
+    "237.jpg",
+    "1074.jpg"
+   ]
+  },
+  {
+   "query": "природа",
+   "expect": [
+    "1050.jpg"
+   ],
+   "within": 10,
+   "forbid": [
+    "1060.jpg",
+    "237.jpg",
+    "1062.jpg"
+   ]
+  },
+  {
+   "query": "горы и озеро",
+   "expect": [
+    "1043.jpg",
+    "1015.jpg"
+   ],
+   "within": 4,
+   "forbid": [
+    "237.jpg",
+    "1074.jpg",
+    "1080.jpg"
+   ]
+  },
+  {
+   "query": "водопад",
+   "expect": [
+    "1035.jpg"
+   ],
+   "within": 4
+  },
+  {
+   "query": "море",
+   "expect": [
+    "1050.jpg"
+   ],
+   "within": 3,
+   "forbid": [
+    "237.jpg",
+    "1060.jpg",
+    "1080.jpg"
+   ]
+  },
+  {
+   "query": "медведь",
+   "expect": [
+    "433.jpg"
+   ],
+   "within": 2,
+   "forbid": [
+    "1060.jpg",
+    "1080.jpg"
+   ]
+  },
+  {
+   "query": "медуза",
+   "expect": [
+    "1069.jpg"
+   ],
+   "within": 1
+  },
+  {
+   "query": "животные",
+   "expect": [
+    "1074.jpg",
+    "433.jpg"
+   ],
+   "within": 12,
+   "forbid": [
+    "1060.jpg",
+    "1015.jpg",
+    "1035.jpg",
+    "1080.jpg"
+   ]
+  },
+  {
+   "query": "кофе",
+   "expect": [
+    "1060.jpg"
+   ],
+   "within": 1,
+   "forbid": [
+    "237.jpg",
+    "1074.jpg"
+   ]
+  },
+  {
+   "query": "цветы",
+   "forbid": [
+    "237.jpg",
+    "1074.jpg",
+    "1060.jpg"
+   ]
+  },
+  {
+   "query": "архитектура",
+   "forbid": [
+    "1003.jpg",
+    "1074.jpg",
+    "237.jpg",
+    "1080.jpg"
+   ]
+  },
+  {
+   "query": "машина",
+   "empty": true,
+   "videos": 0
+  },
+  {
+   "query": "билет на поезд",
+   "empty": true,
+   "videos": 0
+  }
+ ]
+}

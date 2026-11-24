@@ -15,6 +15,13 @@ enum VectorMath {
         return out
     }
 
+    static func dot(_ a: [Float], _ b: [Float]) -> Float {
+        guard a.count == b.count, !a.isEmpty else { return 0 }
+        var result: Float = 0
+        vDSP_dotpr(a, 1, b, 1, &result, vDSP_Length(a.count))
+        return result
+    }
+
     /// Dot product of `query` with every row of a row-major matrix stored flat.
     static func scores(query: [Float], matrix: [Float], rows: Int) -> [Float] {
         let dim = query.count

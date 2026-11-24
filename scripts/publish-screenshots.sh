@@ -20,6 +20,7 @@ fi
 rm -rf "$WT/$SRC"
 mkdir -p "$WT/$SRC"
 cp screenshots/*.png "$WT/$SRC/"
+cp -r screenshots/samples screenshots/search-eval.* "$WT/$SRC/" 2>/dev/null || true
 
 {
   echo "# Скриншоты из симулятора"
