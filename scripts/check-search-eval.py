@@ -35,7 +35,7 @@ for row in got["queries"]:
         problems.append(f"expected {q['videos']} videos, got {videos}")
     failures += bool(problems)
     mark = "FAIL" if problems else "ok  "
-    print(f"{mark} «{row['query']}» [{len(files)}, videos {row.get('videos', 0)}] {shown}")
+    print(f"{mark} «{row['query']}» [{len(files)}, videos {row.get('videos', 0)} top {row.get('videoTop', 0):+.3f}] {shown}")
     if problems:
         print("     " + "; ".join(problems))
     print("     " + row["info"])

@@ -23,6 +23,17 @@ for id in 1003 1011 1015 1025 1035 1043 1050 1060 1062 1069 1074 1080 1084 237 2
   f="sample-photos/$id.jpg"
   [[ -s "$f" ]] || curl -fsSL --retry 3 "https://picsum.photos/id/$id/1200/900" -o "$f" || true
 done
+# Photos of text and a place: CLIP sees every page of text alike, so «резюме» must find
+# the CV by its text and not the shopping list; «Валенсия» must show the view, not the
+# documents photographed there (both carry Valencia's GPS).
+VLC="39.4699 -0.3763"
+swift scripts/make-text-photo.swift text sample-photos/cv-page.jpg \
+  "РЕЗЮМЕ\nCV — Алексей Иванов\nCurriculum Vitae\nОпыт работы\n2019–2024 QA Engineer, Game Studio\nТестирование игр и VR, автоматизация\nОбразование: МГУ, 2015\nНавыки: Python, SQL, Jira, английский B2" $VLC || true
+swift scripts/make-text-photo.swift text sample-photos/shopping-list.jpg \
+  "Список покупок\nмолоко\nхлеб\nяйца 10 шт\nсыр\nпомидоры\nбананы\nвода 6 л\nстиральный порошок" $VLC || true
+swift scripts/make-text-photo.swift text sample-photos/meeting-notes.jpg \
+  "Заметки к встрече\n1. обсудить сроки\n2. бюджет проекта\n3. отпуск в августе\n4. позвонить в банк\n5. договор с подрядчиком" || true
+[[ -s sample-photos/1050.jpg ]] && swift scripts/make-text-photo.swift copy sample-photos/valencia-view.jpg sample-photos/1050.jpg $VLC || true
 ls sample-photos | wc -l
 xcrun simctl addmedia "$DEVICE" sample-photos/*.jpg
 

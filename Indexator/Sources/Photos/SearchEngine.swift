@@ -145,6 +145,7 @@ final class SearchEngine: ObservableObject {
                 "query": query,
                 "info": lastQueryInfo ?? "",
                 "videos": VideoEngine.shared.results.count,
+                "videoTop": Double(VideoEngine.shared.lastTop),
                 "hits": results.prefix(20).map {
                     ["file": fileName($0.id), "score": Double($0.score), "adj": Double(lastAdjusted[$0.id] ?? 0), "text": $0.textMatch]
                 },
@@ -484,6 +485,32 @@ final class SearchEngine: ObservableObject {
             info.append("фильтр: \(filter.label) (\(n) фото)")
         }
 
+        lastAdjusted = [:]
+        if semantic.isEmpty, place != nil {
+            // A bare city name: the views of that place, not every passport, card or receipt
+            // photographed there. Ask «Валенсия собака» for anything else taken in the city.
+            let viewVector = try? await onWorker { try clip.embed(text: Self.placeViewPrompt) }
+            let baseline = await photoBaselines(count: count)
+            var rows = (0..<count).filter { isAllowed($0) && !database.isTextHeavy(row: $0) }
+            if let viewVector {
+                let s = VectorMath.scores(query: viewVector, matrix: database.vectors, rows: count)
+                func adjusted(_ row: Int) -> Float { (row < s.count ? s[row] : 0) - (row < baseline.count ? baseline[row] : 0) }
+                // Mostly-text photos are already out; the rest go views first (people, bikes later).
+                rows = rows.sorted { adjusted($0) > adjusted($1) }
+                lastAdjusted = Dictionary(uniqueKeysWithValues: rows.prefix(40).map { (database.ids[$0], adjusted($0)) })
+            }
+            results = rows.prefix(120).map { SearchHit(id: database.ids[$0], score: 0, textMatch: false) }
+            if let filter = parsed.dateFilter {
+                VideoEngine.shared.search(dateFilter: filter)
+            } else {
+                VideoEngine.shared.clearResults()
+            }
+            info.append("виды места: \(results.count); добавьте, что искать, например «\(shownQuery) море»")
+            lastQueryInfo = info.joined(separator: " · ")
+            log.add("Запрос «\(shownQuery)»: \(lastQueryInfo ?? "")")
+            return
+        }
+
         if semantic.isEmpty {
             // Only a date was given: newest first inside the filter.
             let rows = (0..<count).filter(isAllowed)
@@ -511,16 +538,6 @@ final class SearchEngine: ObservableObject {
 
             // Keep only photos close to the best one by the adjusted score, so a rare subject
             // is not padded with lookalikes, and nothing at all when even the best is weak.
-            let candidates = (0..<scores.count).filter(isAllowed).sorted { adjusted($0) > adjusted($1) }
-            let best = candidates.map(score).max() ?? 0
-            let bestAdjusted = candidates.first.map(adjusted) ?? 0
-            // Nothing is shown when even the best photo barely beats its own average
-            // («попугай» with no parrots: +0.02; a real match: +0.04 and more).
-            let cutoff = max(bestAdjusted - Self.adjustedMargin, bestAdjusted * 0.5, Self.minimumAdjusted / 2)
-            let clipRanked = bestAdjusted < Self.minimumAdjusted ? [] :
-                Array(candidates.prefix { adjusted($0) >= cutoff }.filter { score($0) >= Self.minimumScore }.prefix(300))
-            lastAdjusted = Dictionary(uniqueKeysWithValues: candidates.prefix(40).map { (database.ids[$0], adjusted($0)) })
-
             // Text on the photo is explicit evidence and may add photos on its own, but the
             // city words are already a GPS filter and do not count as text here.
             let placeWords = placeMatch?.words ?? []
@@ -529,6 +546,20 @@ final class SearchEngine: ObservableObject {
                 .filter { !placeWords.contains(PlaceIndex.normalize($0)) }
             let textRanked = words.isEmpty ? [] : database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
+
+            // Photos that are mostly text (notes, lists, documents) all look alike to CLIP:
+            // «резюме» brought shopping lists. They count only when their text matches the query.
+            let candidates = (0..<scores.count)
+                .filter { isAllowed($0) && (textSet.contains($0) || !database.isTextHeavy(row: $0)) }
+                .sorted { adjusted($0) > adjusted($1) }
+            let best = candidates.map(score).max() ?? 0
+            let bestAdjusted = candidates.first.map(adjusted) ?? 0
+            // Nothing is shown when even the best photo barely beats its own average
+            // («попугай» with no parrots: +0.02; a real match: +0.04 and more).
+            let cutoff = max(bestAdjusted - Self.adjustedMargin, bestAdjusted * 0.5, Self.minimumAdjusted / 2)
+            let clipRanked = bestAdjusted < Self.minimumAdjusted ? [] :
+                Array(candidates.prefix { adjusted($0) >= cutoff }.filter { score($0) >= Self.minimumScore }.prefix(300))
+            lastAdjusted = Dictionary(uniqueKeysWithValues: candidates.prefix(40).map { (database.ids[$0], adjusted($0)) })
 
             // Scene labels from Apple's classifier never add photos by themselves (a GPS tag
             // plus a vague label pulled in a catamaran for «архитектура»). They lift photos
@@ -561,6 +592,7 @@ final class SearchEngine: ObservableObject {
             let top = fused.sorted { ($0.value, adjusted($0.key)) > ($1.value, adjusted($1.key)) }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
             VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best,
+                                      photoBestAdjusted: clipRanked.isEmpty ? nil : bestAdjusted,
                                       references: referenceVectors)
 
             let done = CFAbsoluteTimeGetCurrent()
@@ -618,6 +650,8 @@ final class SearchEngine: ObservableObject {
     nonisolated static let adjustedMargin: Float = 0.025
     /// The best photo must beat its own average by this much, or nothing is shown.
     nonisolated static let minimumAdjusted: Float = 0.03
+    /// What a bare city name looks for: places, not documents or people.
+    nonisolated static let placeViewPrompt = "a photo of a city street, buildings, a landmark, the sea or a landscape"
 
     /// Adjusted scores of the last search's top photos, for the CI quality report.
     private(set) var lastAdjusted: [String: Float] = [:]
