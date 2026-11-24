@@ -52,6 +52,24 @@ shot() { # name, wait seconds, launch args...
 
 shot 1-settings-indexing 60 -uiTab settings -autoIndex YES
 shot 2-home 15 -uiTab search
+
+# Search quality: run the reference queries on the indexed sample photos and compare
+# with scripts/search-eval.json (expected and forbidden photos per query).
+EVAL_QUERIES=$(python3 -c 'import json;print("|".join(q["query"] for q in json.load(open("scripts/search-eval.json"))["queries"]))')
+EVAL_FILE="$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/search-eval.json"
+rm -f "$EVAL_FILE"
+xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" 2>/dev/null || true
+xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab search -searchEval "$EVAL_QUERIES"
+for _ in $(seq 1 60); do [[ -s "$EVAL_FILE" ]] && break; sleep 5; done
+cp "$EVAL_FILE" "$OUT/search-eval.json" || {
+  echo "no eval output after 5 minutes; app log:"
+  tail -40 "$(dirname "$(dirname "$EVAL_FILE")")/Library/Caches/applog.txt" || true
+}
+mkdir -p "$OUT/samples"
+for f in sample-photos/*.jpg; do sips -Z 320 "$f" --out "$OUT/samples/$(basename "$f" .jpg).png" -s format png >/dev/null || true; done
+EVAL_STATUS=0
+python3 scripts/check-search-eval.py scripts/search-eval.json "$OUT/search-eval.json" > "$OUT/search-eval.txt" || EVAL_STATUS=1
+cat "$OUT/search-eval.txt"
 shot 3-search-grid 25 -uiTab search -autoQuery "собака"
 shot 4-search-cards 25 -uiTab search -autoQuery "горы и озеро" -ui.resultLayout cards
 shot 5-detail 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind photo
@@ -65,3 +83,5 @@ shot 12-video-player 30 -uiTab search -autoQuery "собака" -autoOpenFirst Y
 shot 13-resume-no-docs 25 -uiTab search -autoQuery "моё резюме"
 shot 14-scope-docs 30 -uiTab search -docsDemo YES -ui.searchScope documents -autoQuery "договор аренды"
 ls -la "$OUT"
+# Screenshots are taken either way; a search-quality miss still fails the job.
+exit $EVAL_STATUS

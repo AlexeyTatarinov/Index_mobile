@@ -121,9 +121,45 @@ final class SearchEngine: ObservableObject {
             VideoEngine.shared.startIndexing(reason: "автотест")
             await VideoEngine.shared.waitForIndexing()
         }
+        if let queries = defaults.string(forKey: "searchEval"), !queries.isEmpty {
+            await runSearchEval(queries.components(separatedBy: "|"))
+        }
         if let query = defaults.string(forKey: "autoQuery"), !query.isEmpty {
             await search(text: query)
         }
+    }
+
+    /// CI search-quality check: `-searchEval "собака|еда|…"` runs each query and writes
+    /// Documents/search-eval.json with the top photo file names, scores and scene labels,
+    /// so scripts/check-search-eval.py can compare them with expectations.
+    private func runSearchEval(_ queries: [String]) async {
+        guard let database else { return }
+        func fileName(_ id: String) -> String {
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return id }
+            return PHAssetResource.assetResources(for: asset).first?.originalFilename ?? id
+        }
+        var report: [[String: Any]] = []
+        for query in queries where !query.isEmpty {
+            await search(text: query)
+            report.append([
+                "query": query,
+                "info": lastQueryInfo ?? "",
+                "hits": results.prefix(20).map {
+                    ["file": fileName($0.id), "score": Double($0.score), "adj": Double(lastAdjusted[$0.id] ?? 0), "text": $0.textMatch]
+                },
+                // The photos just below the cutoff, to see how close the misses were.
+                "near": lastAdjusted.sorted { $0.value > $1.value }.prefix(12).map { ["file": fileName($0.key), "adj": Double($0.value)] },
+            ])
+        }
+        var photos: [String: [String]] = [:]
+        for id in database.ids {
+            photos[fileName(id)] = (database.labelsById[id] ?? []).prefix(5).map { String(format: "%@ %.2f", $0.0, $0.1) }
+        }
+        let json: [String: Any] = ["queries": report, "photos": photos]
+        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+              let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? data.write(to: dir.appendingPathComponent("search-eval.json"))
+        log.add("Проверка поиска: \(report.count) запросов записано")
     }
 
     func loadModelIfNeeded() async {
@@ -462,40 +498,63 @@ final class SearchEngine: ObservableObject {
             return
         }
 
+        // Some photos score high against almost any text (a deer and a lioness came up for
+        // «собака», «попугай» and «еда» alike). Subtracting each photo's average score over a
+        // set of unrelated captions removes that bias, so the ranking reflects the query.
+        let baseline = await photoBaselines(count: count)
+
         do {
             let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: count)
             func score(_ row: Int) -> Float { row < scores.count ? scores[row] : 0 }
+            func adjusted(_ row: Int) -> Float { score(row) - (row < baseline.count ? baseline[row] : 0) }
 
-            // Keep only photos reasonably close to the best one, so a rare subject
-            // does not get padded with unrelated photos.
-            let candidates = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }
-            let best = candidates.first.map(score) ?? 0
-            // Below about 0.23 ViT-B/32 is guessing (in tests an irrelevant query like
-            // "билет на поезд" topped out at 0.22), so such photos are not shown at all.
-            let cutoff = max(best - 0.05, best * 0.82, Self.minimumScore)
-            let clipRanked = Array(candidates.prefix { score($0) >= cutoff }.prefix(400))
-            let words = (parsed.text + " " + semantic).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-            let textRanked = database.textMatches(words: words).filter(isAllowed)
+            // Keep only photos close to the best one by the adjusted score, so a rare subject
+            // is not padded with lookalikes, and nothing at all when even the best is weak.
+            let candidates = (0..<scores.count).filter(isAllowed).sorted { adjusted($0) > adjusted($1) }
+            let best = candidates.map(score).max() ?? 0
+            let bestAdjusted = candidates.first.map(adjusted) ?? 0
+            // Nothing is shown when even the best photo barely beats its own average
+            // («попугай» with no parrots: +0.02; a real match: +0.04 and more).
+            let cutoff = max(bestAdjusted - Self.adjustedMargin, bestAdjusted * 0.5, Self.minimumAdjusted / 2)
+            let clipRanked = bestAdjusted < Self.minimumAdjusted ? [] :
+                Array(candidates.prefix { adjusted($0) >= cutoff }.filter { score($0) >= Self.minimumScore }.prefix(300))
+            lastAdjusted = Dictionary(uniqueKeysWithValues: candidates.prefix(40).map { (database.ids[$0], adjusted($0)) })
+
+            // Text on the photo is explicit evidence and may add photos on its own, but the
+            // city words are already a GPS filter and do not count as text here.
+            let placeWords = placeMatch?.words ?? []
+            let words = (parsed.text + " " + semantic)
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+                .filter { !placeWords.contains(PlaceIndex.normalize($0)) }
+            let textRanked = words.isEmpty ? [] : database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
 
-            // Scene labels from Apple's classifier: steadier than CLIP on broad words.
-            let wantedLabels = LabelQuery.labels(for: parsed.text + " " + semantic).labels
-            var labelRanked: [Int] = []
+            // Scene labels from Apple's classifier never add photos by themselves (a GPS tag
+            // plus a vague label pulled in a catamaran for «архитектура»). They lift photos
+            // CLIP already likes, and add ones CLIP is at least mildly positive about.
+            let wantedLabels = LabelQuery.labels(for: semantic).labels
+            var labelScore: [Int: Float] = [:]
             if !wantedLabels.isEmpty {
-                var labelScore: [Int: Float] = [:]
-                for row in 0..<count where isAllowed(row) {
-                    guard let labels = database.labelsById[database.ids[row]] else { continue }
-                    let best = labels.filter { wantedLabels.contains($0.0) }.map(\.1).max() ?? 0
-                    if best >= 0.3 { labelScore[row] = best }
+                for row in candidates.prefix(600) where adjusted(row) >= 0.005 {
+                    guard row < database.ids.count, let labels = database.labelsById[database.ids[row]] else { continue }
+                    let sure = labels.filter { wantedLabels.contains($0.0) }.map(\.1).max() ?? 0
+                    if sure >= 0.3 { labelScore[row] = sure }
                 }
-                labelRanked = labelScore.sorted { $0.value > $1.value }.prefix(400).map(\.key)
             }
+            // A sure label rescues a photo CLIP is mildly positive about, even when CLIP alone shows
+            // nothing: broad words like «еда» are where Apple's classifier beats CLIP.
+            let clipSet = Set(clipRanked)
+            let rescued = labelScore.filter { !clipSet.contains($0.key) && $0.value >= 0.6 }.map(\.key)
+            let labelRanked = labelScore.sorted { $0.value > $1.value }.map(\.key)
 
-            // Reciprocal rank fusion of the two lists.
+            // Reciprocal rank fusion over the photos that made it in.
             var fused: [Int: Double] = [:]
             for (rank, row) in clipRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
+            for row in rescued { fused[row, default: 0] += 0 }
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
-            for (rank, row) in labelRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
+            for (rank, row) in labelRanked.enumerated() where fused[row] != nil {
+                fused[row, default: 0] += 1.0 / Double(60 + rank)
+            }
             let top = fused.sorted { $0.value > $1.value }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
             VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
@@ -503,10 +562,10 @@ final class SearchEngine: ObservableObject {
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }
             info.insert("Ищу: «\(semantic)»", at: 0)
-            info.append(String(format: "похожих %d, лучший %.2f", clipRanked.count, best))
+            info.append(String(format: "похожих %d, лучший %.2f (%+.3f)", clipRanked.count, best, bestAdjusted))
             info.append(String(format: "текст %.0f мс, поиск %.0f мс", (encoded - start) * 1000, (done - encoded) * 1000))
             if !textRanked.isEmpty { info.append("совпадений в тексте на фото: \(textRanked.count)") }
-            if !wantedLabels.isEmpty { info.append("по меткам сцен: \(labelRanked.count)") }
+            if !wantedLabels.isEmpty { info.append("усилено метками сцен: \(labelRanked.count)") }
             lastQueryInfo = info.joined(separator: " · ")
             log.add("Запрос «\(shownQuery)» → «\(semantic)»: \(lastQueryInfo ?? "")")
         }
@@ -549,7 +608,45 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Helpers
 
-    nonisolated static let minimumScore: Float = 0.23
+    /// Raw CLIP similarity below which a photo is never shown.
+    nonisolated static let minimumScore: Float = 0.20
+    /// How far below the best adjusted score a photo may be and still be shown.
+    nonisolated static let adjustedMargin: Float = 0.025
+    /// The best photo must beat its own average by this much, or nothing is shown.
+    nonisolated static let minimumAdjusted: Float = 0.03
+
+    /// Adjusted scores of the last search's top photos, for the CI quality report.
+    private(set) var lastAdjusted: [String: Float] = [:]
+
+    /// Captions about unrelated everyday subjects in both languages; a photo's average
+    /// similarity to them is its general "matches anything" level.
+    private static let referenceCaptions = [
+        "a photo", "фотография", "a photo of a person", "фото человека", "a photo of an animal", "фото животного",
+        "a photo of food", "фото еды", "a photo of a landscape", "фото природы", "a photo of a building", "фото здания",
+        "a photo of a document", "фото документа", "a photo of a car", "фото машины", "a photo of a room", "фото комнаты",
+        "a screenshot", "скриншот",
+    ]
+    private var referenceVectors: [[Float]] = []
+    private var baselineCache: (count: Int, values: [Float]) = (0, [])
+
+    private func photoBaselines(count: Int) async -> [Float] {
+        guard let clip, let database, count > 0 else { return [] }
+        if baselineCache.count == count, baselineCache.values.count == count { return baselineCache.values }
+        if referenceVectors.isEmpty {
+            let captions = Self.referenceCaptions
+            referenceVectors = (try? await onWorker { try captions.map { try clip.embed(text: $0) } }) ?? []
+        }
+        guard !referenceVectors.isEmpty else { return [] }
+        var sum = [Float](repeating: 0, count: count)
+        for reference in referenceVectors {
+            let s = VectorMath.scores(query: reference, matrix: database.vectors, rows: count)
+            for i in 0..<min(count, s.count) { sum[i] += s[i] }
+        }
+        let n = Float(referenceVectors.count)
+        let values = sum.map { $0 / n }
+        baselineCache = (count, values)
+        return values
+    }
 
     nonisolated static func prompt(for text: String) -> String {
         // The multilingual text tower takes other languages as they are.

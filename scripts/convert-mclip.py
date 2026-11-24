@@ -66,6 +66,63 @@ ids, mask = encode("собака на пляже")
 reference = st.encode(["собака на пляже"])[0]
 assert cos(text_tower(ids, mask)[0], reference) > 0.999, "text wrapper differs from sentence-transformers"
 
+# ------------------------------------------------- vocabulary pruning (app size)
+# The multilingual vocabulary has ~120k tokens for 100+ languages, and its embedding
+# table is most of the text model. The app only needs Russian and English, so other
+# scripts are dropped and the table shrinks. Russian and English text tokenizes
+# exactly as before (checked below).
+import re
+
+# st shares its BERT with text_tower, so reference embeddings are taken before pruning.
+CHECK_TEXTS = ["собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "архитектура Валенсии 2024",
+               "Попугай", "фотография собаки", "a photo of a dog", "a photo of a mountain"]
+original = {t: st.encode([t])[0] for t in CHECK_TEXTS}
+# Whole tokens: ASCII and Russian letters. Single characters: also Latin accents and
+# other Cyrillic, so «café» or «Київ» still tokenize letter by letter instead of [UNK].
+KEEP = re.compile(r"^[\x00-\x7F\u0410-\u044F\u0401\u0451\u2010-\u206F\u20AC\u2116]+$")
+KEEP_CHAR = re.compile(r"^[\u00C0-\u024F\u0400-\u04FF]$")
+full_vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
+
+
+def keep(token):
+    body = token[2:] if token.startswith("##") else token
+    return (token.startswith("[") and token.endswith("]")) or KEEP.match(body) or KEEP_CHAR.match(body)
+
+
+kept = [(t, i) for t, i in full_vocab if keep(t)]
+print(f"vocabulary: {len(full_vocab)} -> {len(kept)} tokens")
+pruned_vocab_path = os.path.join(OUT, f"{VARIANT}_vocab.txt")
+with open(pruned_vocab_path, "w", encoding="utf-8") as f:
+    for token, _ in kept:
+        f.write(token + "\n")
+old_embedding = text_tower.bert.embeddings.word_embeddings
+new_embedding = torch.nn.Embedding(len(kept), old_embedding.embedding_dim)
+new_embedding.weight.data = old_embedding.weight.data[torch.tensor([i for _, i in kept])].clone()
+text_tower.bert.embeddings.word_embeddings = new_embedding
+text_tower.bert.config.vocab_size = len(kept)
+# Token ids move: remap the original tokenizer's output instead of re-tokenizing, so
+# Python and the Swift tokenizer (which reads the pruned vocabulary) agree exactly.
+old_to_new = {old: new for new, (_, old) in enumerate(kept)}
+unk_new = old_to_new[tokenizer.unk_token_id]
+dropped_hits = 0
+
+
+def encode(text):
+    global dropped_hits
+    t = tokenizer(text, padding="max_length", truncation=True, max_length=MAX_LEN, return_tensors="pt")
+    old = t["input_ids"][0].tolist()
+    dropped_hits += sum(1 for i in old if i not in old_to_new)
+    return torch.tensor([[old_to_new.get(i, unk_new) for i in old]]), t["attention_mask"]
+
+
+for text in CHECK_TEXTS:
+    i, m = encode(text)
+    c = cos(text_tower(i, m)[0], original[text])
+    print(f"pruned vs original «{text}»", c)
+    assert c > 0.999, "pruning changed the embedding of Russian/English text"
+assert dropped_hits == 0, "Russian/English text used a dropped token"
+ids, mask = encode("собака на пляже")
+
 traced_text = torch.jit.trace(text_tower, (ids, mask))
 text_ml = ct.convert(
     traced_text,
@@ -84,10 +141,6 @@ text_ml.short_description = "Multilingual CLIP text encoder (clip-ViT-B-32-multi
 text_ml.save(os.path.join(OUT, f"{VARIANT}_text.mlpackage"))
 
 # Vocabulary for the Swift WordPiece tokenizer, plus expected token ids to check it.
-vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
-with open(os.path.join(OUT, f"{VARIANT}_vocab.txt"), "w", encoding="utf-8") as f:
-    for token, index in vocab:
-        f.write(token + "\n")
 samples = ["Попугай", "собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "ёжик 2024"]
 with open(os.path.join(OUT, f"{VARIANT}_tokens.json"), "w", encoding="utf-8") as f:
     json.dump(
@@ -136,14 +189,14 @@ assert cos(torch_image, ml_image) > 0.99
 for text in ["Попугай", "a dog on the beach"]:
     i, m = encode(text)
     ml_text = text_ml.predict({"input_ids": i.numpy().astype(np.int32), "attention_mask": m.numpy().astype(np.int32)})["embedding"]
-    c = cos(st.encode([text])[0], ml_text)
+    c = cos(original[text], ml_text)
     print(f"text torch vs coreml cos «{text}»", c)
     assert c > 0.98
 
 # Russian and English phrasings of the same thing should land close together.
-ru = st.encode(["фотография собаки"])[0]
-en = st.encode(["a photo of a dog"])[0]
-other = st.encode(["a photo of a mountain"])[0]
+ru = original["фотография собаки"]
+en = original["a photo of a dog"]
+other = original["a photo of a mountain"]
 print("ru/en dog", cos(ru, en), "ru dog / en mountain", cos(ru, other))
 assert cos(ru, en) > cos(ru, other)
 print("done")
