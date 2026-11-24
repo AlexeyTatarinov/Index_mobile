@@ -85,6 +85,25 @@ final class MailQueryAndLinksTests: XCTestCase {
     }
 }
 
+final class MailReadableTests: XCTestCase {
+    func testCleansBodyAndHidesQuote() {
+        let raw = """
+        \u{034F}\u{200C}\u{034F}\u{200C}
+        Здравствуйте!
+        [image: logo]
+        .btn { color: red; padding: 4px; }
+        Подпишите договор: https://www.sign.example.com/very/long/path?token=abcdef0123456789
+        On Mon, 3 Nov 2025 Ivan <ivan@example.com> wrote:
+        > старое письмо
+        """
+        let body = MailReadable.body(raw)
+        XCTAssertEqual(body.text, "Здравствуйте!\n\nПодпишите договор: https://www.sign.example.com/very/long/path?token=abcdef0123456789")
+        XCTAssertTrue(body.quoted.contains("старое письмо"))
+        let shown = String(MailReadable.attributed(body.text).characters)
+        XCTAssertEqual(shown, "Здравствуйте!\n\nПодпишите договор: ↗ sign.example.com")
+    }
+}
+
 final class GmailAuthTests: XCTestCase {
     func testClientIdAndRedirect() {
         XCTAssertNil(GoogleOAuthConfig(clientId: "abc"))
@@ -157,12 +176,15 @@ final class MailStoreTests: XCTestCase {
         try await store.insert(Array(MailDemo.messages.prefix(2)))
         var pending = await store.pendingEmbeddingCount(model: "fake")
         XCTAssertEqual(pending, 2)
-        try await store.saveVectors(["demo1": [[1, 0, 0]], "demo2": [[0, 1, 0], [0, 0.6, 0.8]]], model: "fake")
+        try await store.saveVectors(["demo1": [[1, 0, 0]], "demo2": [[0, 1, 0], [0, 0.3, 0.954]]], model: "fake")
         pending = await store.pendingEmbeddingCount(model: "fake")
         XCTAssertEqual(pending, 0)
         let hits = await store.search(words: [], queryVector: [0, 0, 1], model: "fake", filter: nil)
         XCTAssertEqual(hits.first?.id, "demo2")
-        XCTAssertEqual(hits.first?.score ?? 0, 0.8, accuracy: 0.001)
+        XCTAssertEqual(hits.first?.score ?? 0, 0.954, accuracy: 0.01)
+        // Meaning alone below the strong threshold shows nothing.
+        let weak = await store.search(words: [], queryVector: [0, 0.6, 0.8], model: "fake", filter: nil)
+        XCTAssertTrue(weak.isEmpty)
 
         await store.deleteAll()
         let empty = await store.count

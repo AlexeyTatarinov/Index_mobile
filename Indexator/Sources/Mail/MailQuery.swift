@@ -12,6 +12,8 @@ enum MailQuery {
     /// The same when the words were found too: meaning-only extras must be closer.
     static let semanticBandWithWords: Float = 0.02
     static let semanticLimit = 25
+    /// Similarity at which an email without the query words is still shown.
+    static let strongSemantic: Float = 0.9
 
     static let stopWords: Set<String> = [
         // Russian filler and request words

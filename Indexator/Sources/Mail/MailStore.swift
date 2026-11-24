@@ -264,15 +264,28 @@ actor MailStore {
             return hits(for: ids, scores: [:], textMatches: [])
         }
 
-        // Emails found both ways first, then by words, then by meaning only.
+        // An email is shown only when the words are in it. Meaning reorders those
+        // and may add an email without the words only when it is very close
+        // (e.g. the same thing said in another language).
         let textSet = Set(textRanked)
         let semanticSet = Set(semantic)
+        if !allWords && queryVector != nil {
+            // Any-word fallback is noisy: keep only emails the meaning agrees with.
+            textRanked = textRanked.filter { semanticSet.contains($0) }
+        }
         var fused: [String: Double] = [:]
         for (rank, id) in textRanked.enumerated() {
             fused[id, default: 0] += (allWords ? 1.0 : 0.5) / Double(20 + rank)
         }
-        for (rank, id) in semantic.enumerated() { fused[id, default: 0] += 1.0 / Double(20 + rank) }
-        for id in textSet.intersection(semanticSet) { fused[id, default: 0] += 1 }
+        for (rank, id) in semantic.enumerated() {
+            let score = best[id] ?? 0
+            if textSet.contains(id) {
+                fused[id, default: 0] += 1.0 / Double(20 + rank)
+            } else if score >= MailQuery.strongSemantic {
+                fused[id, default: 0] += 0.5 / Double(20 + rank)
+            }
+        }
+        for id in textSet.intersection(semanticSet) where fused[id] != nil { fused[id, default: 0] += 1 }
         let top = fused.sorted { $0.value > $1.value }.prefix(limit).map(\.key)
         return hits(for: top, scores: best, textMatches: textSet)
     }

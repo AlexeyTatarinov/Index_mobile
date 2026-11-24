@@ -78,6 +78,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            GMAIL_CLIENT_ID="${{ vars.GMAIL_CLIENT_ID }}" \
             build
 
       - name: Package IPA
