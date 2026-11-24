@@ -214,6 +214,9 @@ final class VideoEngine: ObservableObject {
     /// `photoBest` is the best photo score for the same query: videos must be about
     /// as close as the photos shown, so a query about dogs does not bring random videos.
     private var frameBaselineCache: (rows: Int, values: [Float]) = (0, [])
+    /// How far below the best photo a video may be; the best video score is kept for the search check.
+    static let photoMargin: Float = 0.03
+    private(set) var lastTop: Float = 0
 
     private func frameBaselines(references: [[Float]], rows: Int) -> [Float] {
         guard let store, !references.isEmpty, rows > 0 else { return [] }
@@ -231,7 +234,9 @@ final class VideoEngine: ObservableObject {
 
     /// `references` are the neutral-caption vectors photo search uses: each frame's average
     /// similarity to them is subtracted, the same "matches anything" correction as for photos.
-    func search(vector: [Float], words: [String], dateFilter: DateFilter?, photoBest: Float, references: [[Float]] = []) {
+    func search(vector: [Float], words: [String], dateFilter: DateFilter?, photoBest: Float,
+                photoBestAdjusted: Float? = nil, references: [[Float]] = []) {
+        lastTop = 0
         guard enabled, let store, store.count > 0 else { return clearResults() }
         let videos = store.count
         let frameRows = min(store.frameCount, store.frameVideo.count, store.frameTime.count)
@@ -265,11 +270,14 @@ final class VideoEngine: ObservableObject {
             // No reference captions yet: the older raw-score rule.
             let reference = max(top, photoBest)
             cutoff = max(top - 0.05, top * 0.82, reference - 0.05)
-        } else if top < SearchEngine.minimumAdjusted {
-            cutoff = .infinity   // nothing in the videos really matches (a waterfall for «билет на поезд»)
         } else {
-            cutoff = max(top - SearchEngine.adjustedMargin, top * 0.5)
+            // A video must match about as well as the photos shown for the same query: lemurs came
+            // up for «попугай» next to real parrot photos. With no photo match, a stricter floor.
+            let floor = photoBestAdjusted.map { max(SearchEngine.minimumAdjusted, $0 - Self.photoMargin) }
+                ?? SearchEngine.minimumAdjusted + 0.01
+            cutoff = top < floor ? .infinity : max(top - SearchEngine.adjustedMargin, top * 0.5, floor)
         }
+        lastTop = top
         let clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
 
         // Words said in the video.

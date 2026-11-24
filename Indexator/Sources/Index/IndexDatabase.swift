@@ -42,6 +42,10 @@ final class IndexDatabase {
     private var rowOf: [String: Int] = [:]
     /// Classifier labels per photo id, strongest first.
     private(set) var labelsById: [String: [(String, Float)]] = [:]
+    /// Photos that are mostly text (documents, passports, cards, screenshots of lists).
+    /// CLIP sees them all as "a page with text", so they are shown only when their text matches.
+    private(set) var textHeavyIds: Set<String> = []
+    static let textHeavyLength = 60
 
     let model: String
     var count: Int { ids.count }
@@ -82,6 +86,7 @@ final class IndexDatabase {
         try exec("CREATE TABLE IF NOT EXISTS photo_labels(id TEXT PRIMARY KEY, labels TEXT NOT NULL)")
         try loadAll()
         loadLabels()
+        loadTextHeavy()
         removeLegacyFiles(in: directory)
     }
 
@@ -115,6 +120,7 @@ final class IndexDatabase {
             sqlite3_bind_text(stmt, 7, record.text, -1, SQLITE_TRANSIENT)
             try step(stmt)
         }
+        if record.text.count >= Self.textHeavyLength { textHeavyIds.insert(record.id) }
         if !record.text.isEmpty {
             try withStatement("INSERT INTO photo_text(id, text) VALUES(?, ?)") { stmt in
                 sqlite3_bind_text(stmt, 1, record.id, -1, SQLITE_TRANSIENT)
@@ -133,6 +139,7 @@ final class IndexDatabase {
         try? exec("SAVEPOINT remove_photos")
         for id in present {
             labelsById[id] = nil
+            textHeavyIds.remove(id)
             for sql in ["DELETE FROM photos WHERE id = ?", "DELETE FROM photo_text WHERE id = ?",
                         "DELETE FROM photo_labels WHERE id = ?"] {
                 try? withStatement(sql) { stmt in
@@ -164,6 +171,7 @@ final class IndexDatabase {
         try? exec("DELETE FROM photo_text")
         try? exec("DELETE FROM photo_labels")
         labelsById = [:]
+        textHeavyIds = []
         ids = []; created = []; months = []; latitudes = []; longitudes = []
         vectors = []; dimension = 0; rowOf = [:]
     }
@@ -186,6 +194,17 @@ final class IndexDatabase {
         }
         labelsById[id] = labels
     }
+
+    private func loadTextHeavy() {
+        try? withStatement("SELECT id FROM photos WHERE length(ocr) >= ?") { stmt in
+            sqlite3_bind_int(stmt, 1, Int32(Self.textHeavyLength))
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let c = sqlite3_column_text(stmt, 0) { textHeavyIds.insert(String(cString: c)) }
+            }
+        }
+    }
+
+    func isTextHeavy(row: Int) -> Bool { row >= 0 && row < ids.count && textHeavyIds.contains(ids[row]) }
 
     private func loadLabels() {
         try? withStatement("SELECT id, labels FROM photo_labels") { stmt in
@@ -214,12 +233,27 @@ final class IndexDatabase {
     }
 
     /// Row indexes whose OCR text matches any of the words, best match first.
+    /// Words that say nothing about what is on a photo («моё резюме» is about «резюме»).
+    static let textStopWords: Set<String> = [
+        "мой", "моя", "моё", "мое", "мои", "моих", "моего", "мою", "для", "где", "как", "что", "это", "все", "всё",
+        "найди", "найти", "покажи", "показать", "фото", "фотки", "фотографии", "фотография", "картинка", "снимок",
+        "the", "and", "for", "with", "my", "find", "show", "photo", "photos", "picture", "image", "of", "in", "on", "a",
+    ]
+
+    /// Photos whose recognized text contains every meaningful query word (Russian endings
+    /// ignored). All words must be there: one common word on a list of notes is not a match.
     func textMatches(words: [String], limit: Int = 300) -> [Int] {
+        var seen: Set<String> = []
         let terms = words
-            .map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }
-            .filter { $0.count >= 3 }
+            .map { $0.lowercased().replacingOccurrences(of: "ё", with: "е").filter { $0.isLetter || $0.isNumber } }
+            .filter { $0.count >= 2 && !Self.textStopWords.contains($0) && seen.insert($0).inserted }
         guard !terms.isEmpty else { return [] }
-        let match = terms.map { "\"\($0)\"*" }.joined(separator: " OR ")
+        let match = terms.map { term -> String in
+            let cyrillic = term.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
+            if cyrillic && term.count >= 5 { return "\"\(PlaceIndex.stem(term))\"*" }
+            if term.count >= 4 { return "\"\(term)\"*" }
+            return "\"\(term)\""
+        }.joined(separator: " AND ")
         var rows: [Int] = []
         try? withStatement("SELECT id FROM photo_text WHERE photo_text MATCH ? ORDER BY rank LIMIT ?") { stmt in
             sqlite3_bind_text(stmt, 1, match, -1, SQLITE_TRANSIENT)
