@@ -56,8 +56,15 @@ shot 2-home 15 -uiTab search
 # Search quality: run the reference queries on the indexed sample photos and compare
 # with scripts/search-eval.json (expected and forbidden photos per query).
 EVAL_QUERIES=$(python3 -c 'import json;print("|".join(q["query"] for q in json.load(open("scripts/search-eval.json"))["queries"]))')
-shot 0-search-eval 40 -uiTab search -searchEval "$EVAL_QUERIES"
-cp "$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/search-eval.json" "$OUT/search-eval.json" || echo "no eval output"
+EVAL_FILE="$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/search-eval.json"
+rm -f "$EVAL_FILE"
+xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" 2>/dev/null || true
+xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab search -searchEval "$EVAL_QUERIES"
+for _ in $(seq 1 60); do [[ -s "$EVAL_FILE" ]] && break; sleep 5; done
+cp "$EVAL_FILE" "$OUT/search-eval.json" || {
+  echo "no eval output after 5 minutes; app log:"
+  tail -40 "$(dirname "$(dirname "$EVAL_FILE")")/Library/Caches/applog.txt" || true
+}
 mkdir -p "$OUT/samples"
 for f in sample-photos/*.jpg; do sips -Z 320 "$f" --out "$OUT/samples/$(basename "$f" .jpg).png" -s format png >/dev/null || true; done
 EVAL_STATUS=0
