@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import XCTest
+@testable import Indexator
+
+final class MailParserTests: XCTestCase {
+    private func b64url(_ s: String, encoding: String.Encoding = .utf8) -> String {
+        PKCE.base64URL(s.data(using: encoding)!)
+    }
+
+    func testPrefersPlainTextOverHTML() {
+        let message = GmailAPIMessage(
+            id: "m1", threadId: "t1", labelIds: ["INBOX"], snippet: "Привет &amp; пока", internalDate: "1700000000000",
+            payload: GmailPart(
+                partId: "", mimeType: "multipart/alternative", filename: "",
+                headers: [GmailHeader(name: "Subject", value: "Тема"), GmailHeader(name: "From", value: "Петя <p@x.ru>")],
+                body: GmailBody(size: 0, data: nil, attachmentId: nil),
+                parts: [
+                    GmailPart(partId: "0", mimeType: "text/plain", filename: "",
+                              headers: [GmailHeader(name: "Content-Type", value: "text/plain; charset=\"UTF-8\"")],
+                              body: GmailBody(size: 10, data: b64url("Билет   на поезд\r\n\r\n\r\nВагон 12"), attachmentId: nil), parts: nil),
+                    GmailPart(partId: "1", mimeType: "text/html", filename: "", headers: nil,
+                              body: GmailBody(size: 10, data: b64url("<p>HTML</p>"), attachmentId: nil), parts: nil),
+                    GmailPart(partId: "2", mimeType: "application/pdf", filename: "ticket.pdf", headers: nil,
+                              body: GmailBody(size: 1000, data: nil, attachmentId: "a1"), parts: nil),
+                ]
+            )
+        )
+        let m = MailParser.parse(message)
+        XCTAssertEqual(m.subject, "Тема")
+        XCTAssertEqual(m.senderName, "Петя")
+        XCTAssertEqual(m.body, "Билет на поезд\n\nВагон 12")
+        XCTAssertEqual(m.snippet, "Привет & пока")
+        XCTAssertEqual(m.attachments, ["ticket.pdf"])
+        XCTAssertEqual(m.date, Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    func testHTMLFallbackAndCharset() {
+        let html = "<html><head><style>p{color:red}</style></head><body><p>Счёт&nbsp;за&nbsp;свет</p><br>84&#44;20 &euro;</body></html>"
+        let message = GmailAPIMessage(
+            id: "m2", threadId: nil, labelIds: nil, snippet: nil, internalDate: nil,
+            payload: GmailPart(partId: "", mimeType: "text/html", filename: "",
+                               headers: [GmailHeader(name: "Content-Type", value: "text/html; charset=windows-1251")],
+                               body: GmailBody(size: 1, data: b64url(html, encoding: .windowsCP1251), attachmentId: nil), parts: nil)
+        )
+        let m = MailParser.parse(message)
+        XCTAssertTrue(m.body.contains("Счёт за свет"), m.body)
+        XCTAssertTrue(m.body.contains("84,20 €"), m.body)
+        XCTAssertFalse(m.body.contains("color"))
+        XCTAssertEqual(m.threadId, "m2")
+    }
+
+    func testDisplayName() {
+        XCTAssertEqual(MailParser.displayName("\"Иван Петров\" <ivan@example.com>"), "Иван Петров")
+        XCTAssertEqual(MailParser.displayName("<a@b.c>"), "a@b.c")
+        XCTAssertEqual(MailParser.displayName("a@b.c"), "a@b.c")
+    }
+
+    func testPassagesAreChunked() {
+        let body = String(repeating: "слово ", count: 400)
+        let m = MailMessage(id: "x", threadId: "x", subject: "Тема", sender: "A <a@b.c>", recipients: "", date: nil,
+                            snippet: "", body: body, labels: [], attachments: [])
+        let p = MailParser.passages(for: m)
+        XCTAssertEqual(p.count, 4)
+        XCTAssertTrue(p[0].hasPrefix("Тема — A\n"))
+        XCTAssertTrue(p.allSatisfy { $0.count <= 820 })
+    }
+}
+
+final class MailQueryAndLinksTests: XCTestCase {
+    func testTermsDropFillerAndCutEndings() {
+        XCTAssertEqual(MailQuery.terms(from: ["письмо", "от", "рекрутингового", "агентства"]), ["рекрутингов", "агентс"])
+        XCTAssertEqual(MailQuery.terms(from: ["Договор"]), ["догов"])
+        XCTAssertEqual(MailQuery.terms(from: ["налогов", "счета", "tickets", "2025"]), ["налог", "счет", "ticket", "2025"])
+    }
+
+    func testLinksFromHTMLAndPlainText() {
+        let html = #"<p>Подпишите <a class="btn" href="https://sign.example.com/doc?id=1&amp;t=2">Открыть договор</a></p><img src="https://track.example.com/p.gif"><a href="mailto:a@b.c">почта</a>"#
+        let plain = "Ссылка: https://example.org/page и снова https://sign.example.com/doc?id=1&t=2"
+        let links = MailParser.extractLinks(html: [html], plain: [plain])
+        XCTAssertEqual(links.map(\.url.absoluteString), ["https://sign.example.com/doc?id=1&t=2", "https://example.org/page"])
+        XCTAssertEqual(links.first?.title, "Открыть договор")
+        XCTAssertEqual(links.last?.label, "example.org")
+        XCTAssertEqual(MailStore.decodeLinks(MailStore.encode(links)), links)
+    }
+}
+
+final class MailReadableTests: XCTestCase {
+    func testCleansBodyAndHidesQuote() {
+        let raw = """
+        \u{034F}\u{200C}\u{034F}\u{200C}
+        Здравствуйте!
+        [image: logo]
+        .btn { color: red; padding: 4px; }
+        Подпишите договор: https://www.sign.example.com/very/long/path?token=abcdef0123456789
+        On Mon, 3 Nov 2025 Ivan <ivan@example.com> wrote:
+        > старое письмо
+        """
+        let body = MailReadable.body(raw)
+        XCTAssertEqual(body.text, "Здравствуйте!\n\nПодпишите договор: https://www.sign.example.com/very/long/path?token=abcdef0123456789")
+        XCTAssertTrue(body.quoted.contains("старое письмо"))
+        let shown = String(MailReadable.attributed(body.text).characters)
+        XCTAssertEqual(shown, "Здравствуйте!\n\nПодпишите договор: ↗ sign.example.com")
+    }
+}
+
+final class GmailAuthTests: XCTestCase {
+    func testClientIdAndRedirect() {
+        XCTAssertNil(GoogleOAuthConfig(clientId: "abc"))
+        let c = try! XCTUnwrap(GoogleOAuthConfig(clientId: " 123-abc.apps.googleusercontent.com\n"))
+        XCTAssertEqual(c.redirectScheme, "com.googleusercontent.apps.123-abc")
+        XCTAssertEqual(c.redirectURI, "com.googleusercontent.apps.123-abc:/oauthredirect")
+        let url = c.authorizationURL(challenge: "ch", state: "st").absoluteString
+        XCTAssertTrue(url.contains("code_challenge_method=S256"))
+        XCTAssertTrue(url.contains("gmail.readonly"))
+    }
+
+    func testPKCEChallengeMatchesRFC7636Example() {
+        XCTAssertEqual(PKCE.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+                       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    }
+
+    func testCallbackParsing() throws {
+        let ok = URL(string: "com.googleusercontent.apps.1:/oauthredirect?state=s1&code=4/abc")!
+        XCTAssertEqual(try GmailAuth.code(from: ok, expectedState: "s1"), "4/abc")
+        XCTAssertThrowsError(try GmailAuth.code(from: ok, expectedState: "other"))
+        let denied = URL(string: "com.googleusercontent.apps.1:/oauthredirect?error=access_denied&state=s1")!
+        XCTAssertThrowsError(try GmailAuth.code(from: denied, expectedState: "s1"))
+    }
+
+    func testGmailQuery() {
+        XCTAssertEqual(MailEngine.gmailQuery(period: .year1, skipPromotions: true),
+                       "-in:spam -in:trash -in:chats newer_than:365d -category:promotions -category:social")
+        XCTAssertEqual(MailEngine.gmailQuery(period: .week, skipPromotions: false), "-in:spam -in:trash -in:chats newer_than:7d")
+        let since = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 12))!
+        XCTAssertEqual(MailEngine.gmailQuery(period: .custom, since: since, skipPromotions: false),
+                       "-in:spam -in:trash -in:chats after:2026/11/03")
+        XCTAssertEqual(MailEngine.gmailQuery(period: .all, skipPromotions: false), "-in:spam -in:trash -in:chats")
+    }
+}
+
+final class MailStoreTests: XCTestCase {
+    private func makeStore() throws -> MailStore {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("mail-\(UUID().uuidString).sqlite").path
+        return try MailStore(path: path)
+    }
+
+    func testWordSearchAndDateFilter() async throws {
+        let store = try makeStore()
+        try await store.insert(MailDemo.messages)
+        let count = await store.count
+        XCTAssertEqual(count, MailDemo.messages.count)
+
+        let hits = await store.search(words: ["билет", "поезд"], queryVector: nil, model: nil, filter: nil)
+        XCTAssertEqual(hits.first?.id, "demo1")
+        XCTAssertTrue(hits.first?.textMatch ?? false)
+
+        // Attachment names are searchable too.
+        let pdf = await store.search(words: ["facture"], queryVector: nil, model: nil, filter: nil)
+        XCTAssertEqual(pdf.first?.id, "demo2")
+
+        // No email has both words: falls back to any word.
+        let either = await store.search(words: ["билеты", "стоматолога"], queryVector: nil, model: nil, filter: nil)
+        XCTAssertEqual(Set(either.map(\.id)), ["demo1", "demo5"])
+        // Filler words are ignored, endings are cut: "счета за электричество" finds "Счёт за электричество".
+        let bill = await store.search(words: ["письмо", "счета", "электричество"], queryVector: nil, model: nil, filter: nil)
+        XCTAssertEqual(bill.map(\.id), ["demo2"])
+
+        let autumn = QueryParser.parse("осенью 2025")
+        let dated = await store.search(words: [], queryVector: nil, model: nil, filter: autumn.dateFilter)
+        XCTAssertEqual(Set(dated.map(\.id)), ["demo2", "demo4", "demo5"])
+    }
+
+    func testVectorsAndPending() async throws {
+        let store = try makeStore()
+        try await store.insert(Array(MailDemo.messages.prefix(2)))
+        var pending = await store.pendingEmbeddingCount(model: "fake")
+        XCTAssertEqual(pending, 2)
+        try await store.saveVectors(["demo1": [[1, 0, 0]], "demo2": [[0, 1, 0], [0, 0.3, 0.954]]], model: "fake")
+        pending = await store.pendingEmbeddingCount(model: "fake")
+        XCTAssertEqual(pending, 0)
+        let hits = await store.search(words: [], queryVector: [0, 0, 1], model: "fake", filter: nil)
+        XCTAssertEqual(hits.first?.id, "demo2")
+        XCTAssertEqual(hits.first?.score ?? 0, 0.954, accuracy: 0.01)
+        // Meaning alone below the strong threshold shows nothing.
+        let weak = await store.search(words: [], queryVector: [1, 1, 0], model: "fake", filter: nil)
+        XCTAssertTrue(weak.isEmpty)
+
+        await store.deleteAll()
+        let empty = await store.count
+        XCTAssertEqual(empty, 0)
+    }
+}
