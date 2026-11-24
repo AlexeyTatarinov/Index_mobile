@@ -18,7 +18,8 @@ failures = 0
 for row in got["queries"]:
     q = expected.get(row["query"], {})
     files = [h["file"] for h in row["hits"]]
-    shown = ", ".join(f'{h["file"].replace(".jpg", "")} {h["score"]:.2f}{"T" if h["text"] else ""}' for h in row["hits"][:10])
+    shown = ", ".join(f'{h["file"].replace(".jpg", "")} {h["score"]:.2f}/{h.get("adj", 0):+.3f}{"T" if h["text"] else ""}' for h in row["hits"][:10])
+    near = ", ".join(f'{h["file"].replace(".jpg", "")} {h["adj"]:+.3f}' for h in row.get("near", []))
     problems = []
     within = q.get("within", 10)
     for f in q.get("expect", []):
@@ -35,6 +36,8 @@ for row in got["queries"]:
     if problems:
         print("     " + "; ".join(problems))
     print("     " + row["info"])
+    if near:
+        print("     ranked by adjusted score: " + near)
 
 print()
 print("Scene labels per sample photo:")
