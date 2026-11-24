@@ -68,18 +68,28 @@ assert cos(text_tower(ids, mask)[0], reference) > 0.999, "text wrapper differs f
 
 # ------------------------------------------------- vocabulary pruning (app size)
 # The multilingual vocabulary has ~120k tokens for 100+ languages, and its embedding
-# table is most of the text model. The app only needs Russian and English (plus
-# digits, punctuation and Latin accents for names), so the other scripts are dropped
-# and the table shrinks. Text in kept scripts tokenizes exactly as before.
+# table is most of the text model. The app only needs Russian and English, so other
+# scripts are dropped and the table shrinks. Russian and English text tokenizes
+# exactly as before (checked below).
 import re
 
 # st shares its BERT with text_tower, so reference embeddings are taken before pruning.
 CHECK_TEXTS = ["собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "архитектура Валенсии 2024",
                "Попугай", "фотография собаки", "a photo of a dog", "a photo of a mountain"]
 original = {t: st.encode([t])[0] for t in CHECK_TEXTS}
-KEEP = re.compile(r"^[\x00-\x7F\u00C0-\u024F\u0400-\u04FF\u2010-\u206F\u20AC\u2116]+$")
+# Whole tokens: ASCII and Russian letters. Single characters: also Latin accents and
+# other Cyrillic, so «café» or «Київ» still tokenize letter by letter instead of [UNK].
+KEEP = re.compile(r"^[\x00-\x7F\u0410-\u044F\u0401\u0451\u2010-\u206F\u20AC\u2116]+$")
+KEEP_CHAR = re.compile(r"^[\u00C0-\u024F\u0400-\u04FF]$")
 full_vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
-kept = [(t, i) for t, i in full_vocab if (t.startswith("[") and t.endswith("]")) or KEEP.match(t[2:] if t.startswith("##") else t)]
+
+
+def keep(token):
+    body = token[2:] if token.startswith("##") else token
+    return (token.startswith("[") and token.endswith("]")) or KEEP.match(body) or KEEP_CHAR.match(body)
+
+
+kept = [(t, i) for t, i in full_vocab if keep(t)]
 print(f"vocabulary: {len(full_vocab)} -> {len(kept)} tokens")
 pruned_vocab_path = os.path.join(OUT, f"{VARIANT}_vocab.txt")
 with open(pruned_vocab_path, "w", encoding="utf-8") as f:
