@@ -7,8 +7,13 @@ import UniformTypeIdentifiers
 
 struct DocumentSettingsView: View {
     @ObservedObject private var engine = DocumentEngine.shared
-    @State private var picking = false
-    @State private var pickTypes: [UTType] = [.folder]
+    @State private var picker: PickerRequest?
+
+    private struct PickerRequest: Identifiable {
+        let id = UUID()
+        let start: PickerStart
+        let types: [UTType]
+    }
 
     var body: some View {
         List {
@@ -20,6 +25,11 @@ struct DocumentSettingsView: View {
                         Text("Файлов: \(s.documents), фрагментов: \(s.chunks)\(s.withOCR > 0 ? ", с OCR: \(s.withOCR)" : "")\(s.failed > 0 ? ", ошибок: \(s.failed)" : "")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if let scan = engine.folderScanInfo[folder.id] {
+                            Text("Последняя проверка: \(scan)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .swipeActions {
                         if !folder.bookmark.isEmpty {
@@ -28,21 +38,24 @@ struct DocumentSettingsView: View {
                     }
                 }
                 Button {
-                    pickTypes = [.folder]
-                    picking = true
+                    picker = PickerRequest(start: .iCloudDrive, types: [.folder])
                 } label: {
-                    Label("Добавить папку", systemImage: "folder.badge.plus")
+                    Label("Подключить iCloud Drive", systemImage: "icloud")
                 }
                 Button {
-                    pickTypes = Self.fileTypes
-                    picking = true
+                    picker = PickerRequest(start: .onMyPhone, types: [.folder])
+                } label: {
+                    Label("Добавить другую папку", systemImage: "folder.badge.plus")
+                }
+                Button {
+                    picker = PickerRequest(start: .files, types: Self.fileTypes)
                 } label: {
                     Label("Добавить файлы", systemImage: "doc.badge.plus")
                 }
             } header: {
                 Text("Папки")
             } footer: {
-                Text("iOS не даёт приложениям доступ ко всей памяти сразу, поэтому один раз выбери в «Файлах» нужные места: целиком «iCloud Drive», «На iPhone» или папку «Загрузки». Подпапки индексируются сами, доступ запоминается, новые файлы подхватываются автоматически. Папка «\(DocumentEngine.appFolderName)» подключена всегда: всё, что туда положишь, найдётся.")
+                Text("«Подключить iCloud Drive» открывает выбор прямо в iCloud Drive: нажми «Открыть», чтобы взять его целиком, или зайди в нужную папку, например «Загрузки». Если окно открылось в другом месте, нажми «Обзор» внизу или стрелку назад вверху и выбери «iCloud Drive». Подпапки индексируются сами, доступ запоминается. Папка «\(DocumentEngine.appFolderName)» подключена всегда.")
             }
 
             Section("Индексация") {
@@ -90,9 +103,11 @@ struct DocumentSettingsView: View {
             }
         }
         .navigationTitle("Документы")
-        // One importer: SwiftUI ignores all but the last .fileImporter on a view.
-        .fileImporter(isPresented: $picking, allowedContentTypes: pickTypes, allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { urls.forEach { engine.addFolder(url: $0) } }
+        .sheet(item: $picker) { request in
+            FolderPicker(start: request.start, contentTypes: request.types) { urls in
+                urls.forEach { engine.addFolder(url: $0) }
+            }
+            .ignoresSafeArea()
         }
         .task { await engine.loadEmbedderIfNeeded() }
     }
@@ -100,7 +115,9 @@ struct DocumentSettingsView: View {
     static let fileTypes: [UTType] = {
         var types: [UTType] = [.pdf, .plainText, .rtf, .html, .commaSeparatedText, .json, .xml, .image]
         if let docx = UTType(filenameExtension: "docx") { types.append(docx) }
-        if let md = UTType(filenameExtension: "md") { types.append(md) }
+        for ext in ["md", "xlsx", "pptx", "odt", "epub", "doc", "pages"] {
+            if let type = UTType(filenameExtension: ext) { types.append(type) }
+        }
         return types
     }()
 

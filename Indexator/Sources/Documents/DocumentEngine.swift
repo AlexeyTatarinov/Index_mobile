@@ -57,7 +57,7 @@ final class DocumentEngine: ObservableObject {
     /// Folder names skipped while walking (set from the Settings screen).
     var excludedFolderNames: Set<String> {
         let names = UserDefaults.standard.stringArray(forKey: "docs.excludedFolderNames")
-            ?? ["WhatsApp", "Telegram", "Viber", "Caches", "tmp", ".Trash", "node_modules"]
+            ?? ["Caches", "Cache", "tmp", ".Trash", "node_modules"]
         return Set(names.map { $0.lowercased() })
     }
     var maxFileBytes: Int64 {
@@ -204,15 +204,29 @@ final class DocumentEngine: ObservableObject {
     // MARK: - Indexing
 
     func startIndexing(folderIds: [Int64]? = nil) {
-        guard !isIndexing else { return }
+        guard !isIndexing else {
+            // A folder added mid-run (or a file changed) must not be dropped: scan again afterwards.
+            rescanAfterRun = true
+            return
+        }
         indexTask = Task { [weak self] in
             await self?.runIndexing(folderIds: folderIds)
+            guard let self else { return }
+            while self.rescanAfterRun && !Task.isCancelled {
+                self.rescanAfterRun = false
+                await self.runIndexing(folderIds: nil)
+            }
         }
     }
 
+    private var rescanAfterRun = false
+
+    /// What the last scan saw in each folder, shown under the folder in Settings.
+    @Published private(set) var folderScanInfo: [Int64: String] = [:]
+
     /// Re-scans folders for new or changed files; cheap when nothing changed.
     func refreshChanged() {
-        guard !folders.isEmpty, !isIndexing else { return }
+        guard !folders.isEmpty else { return }
         startIndexing()
     }
 
@@ -281,10 +295,17 @@ final class DocumentEngine: ObservableObject {
         for folder in targets {
             guard let base = folderURL(folder) else {
                 log.add("Нет доступа к «\(folder.name)». Удали и добавь папку заново.")
+                folderScanInfo[folder.id] = "нет доступа: убери папку и добавь заново"
                 continue
             }
-            let (files, waiting) = await onWorkerSafe { Self.listFiles(base: base, isDirectory: folder.isDirectory, excluded: excluded, excludedFolders: excludedFolders, maxBytes: maxBytes) }
+            let scan = await onWorkerSafe { Self.listFiles(base: base, isDirectory: folder.isDirectory, excluded: excluded, excludedFolders: excludedFolders, maxBytes: maxBytes) }
+            let files = scan.files, waiting = scan.waiting
             pendingCount += waiting
+            var info = "просмотрено \(scan.seen), документов \(files.count)"
+            if waiting > 0 { info += ", скачиваются из iCloud \(waiting)" }
+            if let error = scan.error { info += ", ошибка: \(error)" }
+            folderScanInfo[folder.id] = info
+            log.add("Папка «\(folder.name)»: \(info)")
             let known = Dictionary(store.documents(folderId: folder.id).map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
             let present = Set(files.map(\.path))
             for doc in known.values where !present.contains(doc.path) {
@@ -321,7 +342,13 @@ final class DocumentEngine: ObservableObject {
             let result = await onWorkerSafe { () -> (ExtractedDocument?, [NewChunk], String?, Double) in
                 do {
                     let extracted = try Self.coordinatedExtract(file.url, allowOCR: useOCR)
-                    let pieces = TextChunker.chunks(from: extracted.pages)
+                    var pieces = TextChunker.chunks(from: extracted.pages)
+                    if pieces.isEmpty && !DocumentTextExtractor.imageExtensions.contains(file.url.pathExtension.lowercased()) {
+                        // No readable text (iWork, old .doc, empty scan): still findable by its name and folder.
+                        let title = (file.url.lastPathComponent as NSString).deletingPathExtension
+                        let place = (file.path as NSString).deletingLastPathComponent
+                        pieces = [TextChunk(page: nil, text: place.isEmpty ? title : "\(title) — \(place)")]
+                    }
                     let t0 = CFAbsoluteTimeGetCurrent()
                     var chunks: [NewChunk] = []
                     for piece in pieces {
@@ -363,10 +390,18 @@ final class DocumentEngine: ObservableObject {
 
     /// Lists supported files. Returns the files ready to read and how many are still in
     /// iCloud (their download is requested; they are picked up on a later pass).
-    nonisolated private static func listFiles(base: URL, isDirectory: Bool, excluded: Set<String>, excludedFolders: Set<String>, maxBytes: Int64) -> ([FileEntry], Int) {
+    private struct FolderScan {
+        let files: [FileEntry]
+        let waiting: Int
+        let seen: Int
+        let error: String?
+    }
+
+    nonisolated private static func listFiles(base: URL, isDirectory: Bool, excluded: Set<String>, excludedFolders: Set<String>, maxBytes: Int64) -> FolderScan {
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
                                       .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
-        var waiting = 0
+        var waiting = 0, seen = 0
+        var firstError: String?
         func supported(_ url: URL) -> Bool {
             DocumentTextExtractor.isSupported(url) && !excluded.contains(url.pathExtension.lowercased())
         }
@@ -383,15 +418,21 @@ final class DocumentEngine: ObservableObject {
                              modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0)
         }
         if !isDirectory {
-            return (entry(base, path: "").map { [$0] } ?? [], waiting)
+            let one = entry(base, path: "").map { [$0] } ?? []
+            return FolderScan(files: one, waiting: waiting, seen: 1, error: nil)
         }
         // Hidden files are skipped by hand: iCloud placeholders (".name.pdf.icloud") are hidden too.
         guard let enumerator = FileManager.default.enumerator(
-            at: base, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants]
-        ) else { return ([], 0) }
+            at: base, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants],
+            errorHandler: { url, error in
+                if firstError == nil { firstError = "\(url.lastPathComponent): \(error.localizedDescription)" }
+                return true
+            }
+        ) else { return FolderScan(files: [], waiting: 0, seen: 0, error: "папка не открылась") }
         let basePath = base.standardizedFileURL.path
         var result: [FileEntry] = []
         for case let url as URL in enumerator {
+            seen += 1
             let name = url.lastPathComponent
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             if name.hasPrefix(".") {
@@ -417,7 +458,7 @@ final class DocumentEngine: ObservableObject {
             if let e = entry(url, path: path) { result.append(e) }
             if result.count >= 20_000 { break }
         }
-        return (result, waiting)
+        return FolderScan(files: result, waiting: waiting, seen: seen, error: firstError)
     }
 
     /// Reads through NSFileCoordinator, so files kept by a file provider (iCloud Drive,
@@ -438,7 +479,7 @@ final class DocumentEngine: ObservableObject {
     private func scheduleRecheck() {
         recheckTask?.cancel()
         recheckTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
             guard !Task.isCancelled else { return }
             self?.refreshChanged()
         }

@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 
 struct DocumentOnboardingCard: View {
     @ObservedObject private var engine = DocumentEngine.shared
-    @State private var picking = false
+    @State private var pickerStart: PickerStart?
     @AppStorage("docs.onboardingDismissed") private var dismissed = false
 
     var body: some View {
@@ -21,8 +21,9 @@ struct DocumentOnboardingCard: View {
                 progressCard
             }
         }
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { urls.forEach { engine.addFolder(url: $0) } }
+        .sheet(item: $pickerStart) { start in
+            FolderPicker(start: start) { urls in urls.forEach { engine.addFolder(url: $0) } }
+                .ignoresSafeArea()
         }
     }
 
@@ -40,17 +41,24 @@ struct DocumentOnboardingCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text("В окне «Файлов» открой «iCloud Drive» или «На iPhone» и нажми «Открыть», чтобы взять всё сразу. Можно выбрать несколько мест по очереди, например «Загрузки».")
+            Text("Откроется iCloud Drive: нажми «Открыть», чтобы взять его целиком со всеми папками, включая «Загрузки». Папку на iPhone можно добавить отдельно.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
                 Button {
-                    picking = true
+                    pickerStart = .iCloudDrive
                 } label: {
-                    Label("Выбрать папки", systemImage: "folder.badge.plus")
+                    Label("iCloud Drive", systemImage: "icloud")
                         .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
+                Button {
+                    pickerStart = .onMyPhone
+                } label: {
+                    Label("На iPhone", systemImage: "iphone")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.bordered)
                 Spacer()
                 Button("Не сейчас") { dismissed = true }
                     .font(.footnote)

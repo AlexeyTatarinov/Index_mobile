@@ -110,7 +110,18 @@ final class DocxExtractionTests: XCTestCase {
         XCTAssertTrue(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/a.PDF")))
         XCTAssertTrue(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/b.docx")))
         XCTAssertTrue(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/c.heic")))
-        XCTAssertFalse(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/d.doc")))
+        // Old .doc and iWork files are indexed by name only, so they count as supported.
+        XCTAssertTrue(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/d.doc")))
+        XCTAssertTrue(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/e.pages")))
+        XCTAssertTrue(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/f.xlsx")))
+        XCTAssertFalse(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/g.exe")))
         XCTAssertFalse(DocumentTextExtractor.isSupported(URL(fileURLWithPath: "/tmp/noext")))
+    }
+
+    func testOfficeXMLText() {
+        let slide = "<p:sld><a:p><a:r><a:t>Резюме</a:t></a:r></a:p><a:p><a:r><a:t>Опыт &amp; навыки</a:t></a:r></a:p></p:sld>"
+        XCTAssertEqual(DocumentTextExtractor.xmlText(slide), "Резюме\nОпыт & навыки")
+        let strings = "<sst><si><t>Счёт</t></si><si><t>2024</t></si></sst>"
+        XCTAssertEqual(DocumentTextExtractor.xmlText(strings), "Счёт\n2024")
     }
 }
