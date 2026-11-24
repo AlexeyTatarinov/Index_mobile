@@ -10,6 +10,7 @@ import sys
 
 LATIN_OR_CYRILLIC = re.compile(r"^[A-Za-zÀ-ɏЀ-ӿ' .\-]+$")
 CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+ENDINGS = {"a": "ая", "o": "о", "e": "еья"}
 AWKWARD = re.compile(r"иа|еа|оа|иу|ео|аэ")
 RUSSIAN = re.compile(r"^[А-Яа-яЁё \-]+$")  # Russian letters only, not Serbian or Ukrainian
 
@@ -35,14 +36,19 @@ with open(sys.argv[1], encoding="utf-8") as src, open(sys.argv[2], "w", encoding
             n = norm(candidate)
             if len(n) >= 3 and n not in names:
                 names.append(n)
-        # GeoNames does not tag languages; a single word, then the longest spelling,
-        # picks «Валенсия» over the case form «Валенси».
+        # GeoNames does not tag languages and mixes in case forms and transliterations
+        # («Валенси», «Валенсий», «Валенсиа»). Prefer an ending that fits the English
+        # name (Valencia → …я/…а), then spellings without vowel pairs Russian avoids,
+        # then the longest.
         russian = ""
         if russian_options:
             single = [r for r in russian_options if " " not in r and "-" not in r] or russian_options
-            # Prefer real Russian spellings over letter-by-letter transliterations
-            # («Валенсия», not «Валенсиа»): fewer vowel pairs Russian avoids, then longer.
-            russian = max(single, key=lambda r: (-len(AWKWARD.findall(r.lower())), len(r)))
+            endings = ENDINGS.get(name[-1:].lower(), "")
+            russian = max(single, key=lambda r: (
+                not endings or r[-1].lower() in endings,
+                -len(AWKWARD.findall(r.lower())),
+                len(r),
+            ))
         if not names:
             continue
         out.write("\t".join([lat, lon, population, country, name, russian, "|".join(names)]) + "\n")
