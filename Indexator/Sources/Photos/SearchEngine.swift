@@ -545,7 +545,9 @@ final class SearchEngine: ObservableObject {
             // nothing: broad words like «еда» are where Apple's classifier beats CLIP.
             let clipSet = Set(clipRanked)
             let rescued = labelScore.filter { !clipSet.contains($0.key) && $0.value >= 0.6 }.map(\.key)
-            let labelRanked = labelScore.sorted { $0.value > $1.value }.map(\.key)
+            // Ties (common: the classifier often gives several photos the same confidence) are
+            // broken by CLIP, so the order is stable and labels never reshuffle CLIP's ranking.
+            let labelRanked = labelScore.sorted { ($0.value, adjusted($0.key)) > ($1.value, adjusted($1.key)) }.map(\.key)
 
             // Reciprocal rank fusion over the photos that made it in.
             var fused: [Int: Double] = [:]
@@ -553,9 +555,9 @@ final class SearchEngine: ObservableObject {
             for row in rescued { fused[row, default: 0] += 0 }
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
             for (rank, row) in labelRanked.enumerated() where fused[row] != nil {
-                fused[row, default: 0] += 1.0 / Double(60 + rank)
+                fused[row, default: 0] += 0.5 / Double(60 + rank)
             }
-            let top = fused.sorted { $0.value > $1.value }.prefix(90)
+            let top = fused.sorted { ($0.value, adjusted($0.key)) > ($1.value, adjusted($1.key)) }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
             VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
 
