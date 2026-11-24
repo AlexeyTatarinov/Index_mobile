@@ -1,0 +1,532 @@
+{
+  "photos" : {
+    "169.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "200.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "219.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "237.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "433.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "582.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "659.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1003.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1011.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1015.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1025.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1035.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1043.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1050.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1060.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1062.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1069.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1074.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1080.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "1084.jpg" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "IMG_0001.JPG" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "IMG_0002.JPG" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "IMG_0003.JPG" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "IMG_0004.JPG" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "IMG_0005.JPG" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ],
+    "IMG_0111.HEIC" : [
+      "outdoor 0.49",
+      "night_sky 0.49",
+      "sky 0.49",
+      "celestial_body 0.18",
+      "moon 0.18"
+    ]
+  },
+  "queries" : [
+    {
+      "hits" : [
+        {
+          "file" : "659.jpg",
+          "score" : 0.27240598201751709,
+          "text" : false
+        },
+        {
+          "file" : "237.jpg",
+          "score" : 0.26835352182388306,
+          "text" : false
+        },
+        {
+          "file" : "1025.jpg",
+          "score" : 0.25749236345291138,
+          "text" : false
+        },
+        {
+          "file" : "582.jpg",
+          "score" : 0.24640016257762909,
+          "text" : false
+        },
+        {
+          "file" : "1003.jpg",
+          "score" : 0.24607841670513153,
+          "text" : false
+        },
+        {
+          "file" : "1074.jpg",
+          "score" : 0.24596808850765228,
+          "text" : false
+        },
+        {
+          "file" : "1062.jpg",
+          "score" : 0.24365592002868652,
+          "text" : false
+        },
+        {
+          "file" : "169.jpg",
+          "score" : 0.24046909809112549,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «собака» · похожих 8, лучший 0.27 · текст 4562 мс, поиск 74 мс · усилено метками сцен: 0",
+      "query" : "собака"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "237.jpg",
+          "score" : 0.27175527811050415,
+          "text" : false
+        },
+        {
+          "file" : "659.jpg",
+          "score" : 0.26730751991271973,
+          "text" : false
+        },
+        {
+          "file" : "1025.jpg",
+          "score" : 0.26128292083740234,
+          "text" : false
+        },
+        {
+          "file" : "1003.jpg",
+          "score" : 0.25660556554794312,
+          "text" : false
+        },
+        {
+          "file" : "169.jpg",
+          "score" : 0.25157973170280457,
+          "text" : false
+        },
+        {
+          "file" : "1074.jpg",
+          "score" : 0.25057852268218994,
+          "text" : false
+        },
+        {
+          "file" : "582.jpg",
+          "score" : 0.24848538637161255,
+          "text" : false
+        },
+        {
+          "file" : "1062.jpg",
+          "score" : 0.24530147016048431,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «щенок» · похожих 8, лучший 0.27 · текст 97 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "щенок"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "237.jpg",
+          "score" : 0.28895950317382812,
+          "text" : false
+        },
+        {
+          "file" : "659.jpg",
+          "score" : 0.28441816568374634,
+          "text" : false
+        },
+        {
+          "file" : "1025.jpg",
+          "score" : 0.27144968509674072,
+          "text" : false
+        },
+        {
+          "file" : "1062.jpg",
+          "score" : 0.26099070906639099,
+          "text" : false
+        },
+        {
+          "file" : "582.jpg",
+          "score" : 0.25712683796882629,
+          "text" : false
+        },
+        {
+          "file" : "1074.jpg",
+          "score" : 0.25644242763519287,
+          "text" : false
+        },
+        {
+          "file" : "1003.jpg",
+          "score" : 0.25506368279457092,
+          "text" : false
+        },
+        {
+          "file" : "169.jpg",
+          "score" : 0.25124788284301758,
+          "text" : false
+        },
+        {
+          "file" : "200.jpg",
+          "score" : 0.25056862831115723,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «a dog» · похожих 9, лучший 0.29 · текст 76 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "a dog"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1074.jpg",
+          "score" : 0.25139880180358887,
+          "text" : false
+        },
+        {
+          "file" : "1003.jpg",
+          "score" : 0.24316146969795227,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «попугай» · похожих 2, лучший 0.25 · текст 89 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "попугай"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1003.jpg",
+          "score" : 0.24125240743160248,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «еда» · похожих 1, лучший 0.24 · текст 89 мс, поиск 0 мс · усилено метками сцен: 0",
+      "query" : "еда"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1074.jpg",
+          "score" : 0.25523224472999573,
+          "text" : false
+        },
+        {
+          "file" : "1003.jpg",
+          "score" : 0.26865699887275696,
+          "text" : false
+        },
+        {
+          "file" : "1035.jpg",
+          "score" : 0.24429208040237427,
+          "text" : false
+        },
+        {
+          "file" : "1011.jpg",
+          "score" : 0.24186958372592926,
+          "text" : false
+        },
+        {
+          "file" : "582.jpg",
+          "score" : 0.24030961096286774,
+          "text" : false
+        },
+        {
+          "file" : "1025.jpg",
+          "score" : 0.24278600513935089,
+          "text" : false
+        },
+        {
+          "file" : "IMG_0111.HEIC",
+          "score" : 0.24530015885829926,
+          "text" : false
+        },
+        {
+          "file" : "IMG_0001.JPG",
+          "score" : 0.24179306626319885,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «природа» · похожих 8, лучший 0.27 · текст 74 мс, поиск 1 мс · усилено метками сцен: 22",
+      "query" : "природа"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1011.jpg",
+          "score" : 0.26588943600654602,
+          "text" : false
+        },
+        {
+          "file" : "1015.jpg",
+          "score" : 0.26231572031974792,
+          "text" : false
+        },
+        {
+          "file" : "1043.jpg",
+          "score" : 0.25108140707015991,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «горы и озеро» · похожих 3, лучший 0.27 · текст 89 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "горы и озеро"
+    },
+    {
+      "hits" : [
+
+      ],
+      "info" : "Ищу: «архитектура» · похожих 0, лучший 0.21 · текст 75 мс, поиск 0 мс · усилено метками сцен: 0",
+      "query" : "архитектура"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1050.jpg",
+          "score" : 0.24223774671554565,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «море» · похожих 1, лучший 0.24 · текст 79 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "море"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1003.jpg",
+          "score" : 0.26159068942070007,
+          "text" : false
+        },
+        {
+          "file" : "1074.jpg",
+          "score" : 0.26159015297889709,
+          "text" : false
+        },
+        {
+          "file" : "582.jpg",
+          "score" : 0.24715468287467957,
+          "text" : false
+        },
+        {
+          "file" : "1084.jpg",
+          "score" : 0.24455942213535309,
+          "text" : false
+        },
+        {
+          "file" : "433.jpg",
+          "score" : 0.24345558881759644,
+          "text" : false
+        },
+        {
+          "file" : "659.jpg",
+          "score" : 0.24145048856735229,
+          "text" : false
+        },
+        {
+          "file" : "169.jpg",
+          "score" : 0.24066957831382751,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «животные» · похожих 7, лучший 0.26 · текст 78 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "животные"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "1060.jpg",
+          "score" : 0.27675667405128479,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «кофе» · похожих 1, лучший 0.28 · текст 89 мс, поиск 0 мс",
+      "query" : "кофе"
+    },
+    {
+      "hits" : [
+        {
+          "file" : "IMG_0111.HEIC",
+          "score" : 0.2853337824344635,
+          "text" : false
+        },
+        {
+          "file" : "IMG_0001.JPG",
+          "score" : 0.24650406837463379,
+          "text" : false
+        }
+      ],
+      "info" : "Ищу: «цветы» · похожих 2, лучший 0.29 · текст 90 мс, поиск 0 мс · усилено метками сцен: 0",
+      "query" : "цветы"
+    },
+    {
+      "hits" : [
+
+      ],
+      "info" : "Ищу: «машина» · похожих 0, лучший 0.23 · текст 69 мс, поиск 1 мс · усилено метками сцен: 0",
+      "query" : "машина"
+    },
+    {
+      "hits" : [
+
+      ],
+      "info" : "Ищу: «люди» · похожих 0, лучший 0.24 · текст 81 мс, поиск 0 мс · усилено метками сцен: 0",
+      "query" : "люди"
+    },
+    {
+      "hits" : [
+
+      ],
+      "info" : "Ищу: «билет на поезд» · похожих 0, лучший 0.22 · текст 57 мс, поиск 1 мс",
+      "query" : "билет на поезд"
+    }
+  ]
+}

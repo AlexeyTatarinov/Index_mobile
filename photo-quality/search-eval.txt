@@ -1,0 +1,60 @@
+ok   «собака» [8] 659 0.27, 237 0.27, 1025 0.26, 582 0.25, 1003 0.25, 1074 0.25, 1062 0.24, 169 0.24
+     Ищу: «собака» · похожих 8, лучший 0.27 · текст 4562 мс, поиск 74 мс · усилено метками сцен: 0
+ok   «щенок» [8] 237 0.27, 659 0.27, 1025 0.26, 1003 0.26, 169 0.25, 1074 0.25, 582 0.25, 1062 0.25
+     Ищу: «щенок» · похожих 8, лучший 0.27 · текст 97 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «a dog» [9] 237 0.29, 659 0.28, 1025 0.27, 1062 0.26, 582 0.26, 1074 0.26, 1003 0.26, 169 0.25, 200 0.25
+     Ищу: «a dog» · похожих 9, лучший 0.29 · текст 76 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «попугай» [2] 1074 0.25, 1003 0.24
+     Ищу: «попугай» · похожих 2, лучший 0.25 · текст 89 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «еда» [1] 1003 0.24
+     Ищу: «еда» · похожих 1, лучший 0.24 · текст 89 мс, поиск 0 мс · усилено метками сцен: 0
+ok   «природа» [8] 1074 0.26, 1003 0.27, 1035 0.24, 1011 0.24, 582 0.24, 1025 0.24, IMG_0111.HEIC 0.25, IMG_0001.JPG 0.24
+     Ищу: «природа» · похожих 8, лучший 0.27 · текст 74 мс, поиск 1 мс · усилено метками сцен: 22
+ok   «горы и озеро» [3] 1011 0.27, 1015 0.26, 1043 0.25
+     Ищу: «горы и озеро» · похожих 3, лучший 0.27 · текст 89 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «архитектура» [0] 
+     Ищу: «архитектура» · похожих 0, лучший 0.21 · текст 75 мс, поиск 0 мс · усилено метками сцен: 0
+ok   «море» [1] 1050 0.24
+     Ищу: «море» · похожих 1, лучший 0.24 · текст 79 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «животные» [7] 1003 0.26, 1074 0.26, 582 0.25, 1084 0.24, 433 0.24, 659 0.24, 169 0.24
+     Ищу: «животные» · похожих 7, лучший 0.26 · текст 78 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «кофе» [1] 1060 0.28
+     Ищу: «кофе» · похожих 1, лучший 0.28 · текст 89 мс, поиск 0 мс
+ok   «цветы» [2] IMG_0111.HEIC 0.29, IMG_0001.JPG 0.25
+     Ищу: «цветы» · похожих 2, лучший 0.29 · текст 90 мс, поиск 0 мс · усилено метками сцен: 0
+ok   «машина» [0] 
+     Ищу: «машина» · похожих 0, лучший 0.23 · текст 69 мс, поиск 1 мс · усилено метками сцен: 0
+ok   «люди» [0] 
+     Ищу: «люди» · похожих 0, лучший 0.24 · текст 81 мс, поиск 0 мс · усилено метками сцен: 0
+ok   «билет на поезд» [0] 
+     Ищу: «билет на поезд» · похожих 0, лучший 0.22 · текст 57 мс, поиск 1 мс
+
+Scene labels per sample photo:
+  1003.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1011.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1015.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1025.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1035.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1043.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1050.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1060.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1062.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1069.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1074.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1080.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  1084.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  169.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  200.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  219.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  237.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  433.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  582.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  659.jpg: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  IMG_0001.JPG: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  IMG_0002.JPG: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  IMG_0003.JPG: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  IMG_0004.JPG: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  IMG_0005.JPG: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+  IMG_0111.HEIC: outdoor 0.49, night_sky 0.49, sky 0.49, celestial_body 0.18, moon 0.18
+
+15/15 queries as expected
