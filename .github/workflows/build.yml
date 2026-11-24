@@ -78,8 +78,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            GMAIL_CLIENT_ID="${{ vars.GMAIL_CLIENT_ID }}" \
+            GMAIL_CLIENT_ID="${{ vars.GMAIL_CLIENT_ID || secrets.GMAIL_CLIENT_ID }}" \
             build
+
+      - name: Check Gmail Client ID is built in
+        run: |
+          ID=$(/usr/libexec/PlistBuddy -c "Print :GmailClientID" build/Build/Products/Release-iphoneos/Indexator.app/Info.plist 2>/dev/null || true)
+          if [[ "$ID" == *.apps.googleusercontent.com ]]; then echo "Gmail Client ID: built in"; else echo "::warning::Gmail Client ID not set (repo variable or secret GMAIL_CLIENT_ID)"; fi
 
       - name: Package IPA
         run: |
