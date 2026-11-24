@@ -66,6 +66,40 @@ ids, mask = encode("собака на пляже")
 reference = st.encode(["собака на пляже"])[0]
 assert cos(text_tower(ids, mask)[0], reference) > 0.999, "text wrapper differs from sentence-transformers"
 
+# ------------------------------------------------- vocabulary pruning (app size)
+# The multilingual vocabulary has ~120k tokens for 100+ languages, and its embedding
+# table is most of the text model. The app only needs Russian and English (plus
+# digits, punctuation and Latin accents for names), so the other scripts are dropped
+# and the table shrinks. Text in kept scripts tokenizes exactly as before.
+import re
+from transformers import BertTokenizer
+
+KEEP = re.compile(r"^[\x00-\x7F\u00C0-\u024F\u0400-\u04FF\u2010-\u206F\u20AC\u2116]+$")
+full_vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
+kept = [(t, i) for t, i in full_vocab if (t.startswith("[") and t.endswith("]")) or KEEP.match(t[2:] if t.startswith("##") else t)]
+print(f"vocabulary: {len(full_vocab)} -> {len(kept)} tokens")
+pruned_vocab_path = os.path.join(OUT, f"{VARIANT}_vocab.txt")
+with open(pruned_vocab_path, "w", encoding="utf-8") as f:
+    for token, _ in kept:
+        f.write(token + "\n")
+old_embedding = text_tower.bert.embeddings.word_embeddings
+new_embedding = torch.nn.Embedding(len(kept), old_embedding.embedding_dim)
+new_embedding.weight.data = old_embedding.weight.data[torch.tensor([i for _, i in kept])].clone()
+text_tower.bert.embeddings.word_embeddings = new_embedding
+text_tower.bert.config.vocab_size = len(kept)
+tokenizer = BertTokenizer(
+    pruned_vocab_path,
+    do_lower_case=getattr(st.tokenizer, "do_lower_case", False),
+    tokenize_chinese_chars=True,
+    strip_accents=None,
+)
+for text in ["собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "архитектура Валенсии 2024"]:
+    i, m = encode(text)
+    c = cos(text_tower(i, m)[0], st.encode([text])[0])
+    print(f"pruned vs original «{text}»", c)
+    assert c > 0.999, "pruning changed the embedding of Russian/English text"
+ids, mask = encode("собака на пляже")
+
 traced_text = torch.jit.trace(text_tower, (ids, mask))
 text_ml = ct.convert(
     traced_text,
@@ -84,10 +118,6 @@ text_ml.short_description = "Multilingual CLIP text encoder (clip-ViT-B-32-multi
 text_ml.save(os.path.join(OUT, f"{VARIANT}_text.mlpackage"))
 
 # Vocabulary for the Swift WordPiece tokenizer, plus expected token ids to check it.
-vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
-with open(os.path.join(OUT, f"{VARIANT}_vocab.txt"), "w", encoding="utf-8") as f:
-    for token, index in vocab:
-        f.write(token + "\n")
 samples = ["Попугай", "собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "ёжик 2024"]
 with open(os.path.join(OUT, f"{VARIANT}_tokens.json"), "w", encoding="utf-8") as f:
     json.dump(
