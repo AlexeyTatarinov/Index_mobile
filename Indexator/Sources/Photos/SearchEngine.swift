@@ -495,7 +495,8 @@ final class SearchEngine: ObservableObject {
             if let viewVector {
                 let s = VectorMath.scores(query: viewVector, matrix: database.vectors, rows: count)
                 func adjusted(_ row: Int) -> Float { (row < s.count ? s[row] : 0) - (row < baseline.count ? baseline[row] : 0) }
-                rows = rows.filter { adjusted($0) >= Self.placeViewMinimum }.sorted { adjusted($0) > adjusted($1) }
+                // Mostly-text photos are already out; the rest go views first (people, bikes later).
+                rows = rows.sorted { adjusted($0) > adjusted($1) }
                 lastAdjusted = Dictionary(uniqueKeysWithValues: rows.prefix(40).map { (database.ids[$0], adjusted($0)) })
             }
             results = rows.prefix(120).map { SearchHit(id: database.ids[$0], score: 0, textMatch: false) }
@@ -651,7 +652,6 @@ final class SearchEngine: ObservableObject {
     nonisolated static let minimumAdjusted: Float = 0.03
     /// What a bare city name looks for: places, not documents or people.
     nonisolated static let placeViewPrompt = "a photo of a city street, buildings, a landmark, the sea or a landscape"
-    nonisolated static let placeViewMinimum: Float = 0.0
 
     /// Adjusted scores of the last search's top photos, for the CI quality report.
     private(set) var lastAdjusted: [String: Float] = [:]
