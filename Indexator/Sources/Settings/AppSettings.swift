@@ -24,7 +24,7 @@ final class AppSettings: ObservableObject {
     /// Albums whose names look like messenger dumps; excluded by default (spec: skip messenger caches).
     static let messengerAlbumNames = ["whatsapp", "telegram", "viber", "signal", "vk", "вконтакте", "messenger", "wechat", "line", "imo"]
     /// Folder names skipped in document folders by default.
-    static let defaultExcludedFolders = ["WhatsApp", "Telegram", "Telegram Desktop", "Viber", "Caches", "Cache", "tmp", ".Trash", "node_modules"]
+    static let defaultExcludedFolders = ["Caches", "Cache", "tmp", ".Trash", "node_modules"]
 
     /// Document formats the user can switch off. Extensions in lowercase.
     struct DocumentFormat: Identifiable {

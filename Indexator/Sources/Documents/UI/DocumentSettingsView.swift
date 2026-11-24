@@ -20,6 +20,11 @@ struct DocumentSettingsView: View {
                         Text("Файлов: \(s.documents), фрагментов: \(s.chunks)\(s.withOCR > 0 ? ", с OCR: \(s.withOCR)" : "")\(s.failed > 0 ? ", ошибок: \(s.failed)" : "")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if let scan = engine.folderScanInfo[folder.id] {
+                            Text("Последняя проверка: \(scan)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .swipeActions {
                         if !folder.bookmark.isEmpty {

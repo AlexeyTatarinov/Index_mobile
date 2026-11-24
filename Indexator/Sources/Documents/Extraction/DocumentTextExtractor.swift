@@ -47,6 +47,11 @@ enum DocumentTextExtractor {
 
     static let supportedExtensions: Set<String> =
         plainTextExtensions.union(htmlExtensions).union(imageExtensions).union(["pdf", "rtf", "docx"])
+            .union(officeZipExtensions).union(nameOnlyExtensions)
+    /// Zipped XML formats whose text is read directly: Excel, PowerPoint, OpenDocument, EPUB.
+    static let officeZipExtensions: Set<String> = ["xlsx", "pptx", "odt", "ods", "odp", "epub"]
+    /// Formats without a text reader here (old binary Office, iWork): found by file name only.
+    static let nameOnlyExtensions: Set<String> = ["doc", "xls", "ppt", "pages", "numbers", "key"]
 
     /// Text files are read up to this many bytes.
     static let maxTextBytes = 20 * 1024 * 1024
@@ -89,6 +94,12 @@ enum DocumentTextExtractor {
         if ext == "docx" {
             let text = try extractDocx(url)
             return single(text)
+        }
+        if officeZipExtensions.contains(ext) {
+            return single(try extractZippedXML(url, ext: ext))
+        }
+        if nameOnlyExtensions.contains(ext) {
+            return ExtractedDocument(pages: [], usedOCR: false)
         }
         if imageExtensions.contains(ext) {
             guard allowOCR else { return ExtractedDocument(pages: [], usedOCR: false) }
@@ -328,6 +339,55 @@ enum DocumentTextExtractor {
     }
 
     // MARK: - DOCX
+
+    /// Text of xlsx / pptx / OpenDocument / EPUB: the XML parts that hold text, tags stripped.
+    private static func extractZippedXML(_ url: URL, ext: String) throws -> String {
+        let name = url.lastPathComponent
+        let zip: ZipReader
+        do {
+            zip = try ZipReader(url: url)
+        } catch let error as ZipReader.ZipError where error == .encrypted {
+            throw DocumentExtractionError.locked(fileName: name)
+        } catch {
+            throw DocumentExtractionError.damaged(fileName: name)
+        }
+        func isTextPart(_ path: String) -> Bool {
+            switch ext {
+            case "xlsx": return path == "xl/sharedStrings.xml"  // cell texts; sheets hold indexes into it
+            case "pptx": return path.hasPrefix("ppt/slides/slide") && path.hasSuffix(".xml")
+            case "epub": return path.hasSuffix(".xhtml") || path.hasSuffix(".html") || path.hasSuffix(".htm")
+            default: return path == "content.xml"
+            }
+        }
+        let parts = zip.entries.map(\.name).filter(isTextPart).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+        var texts: [String] = []
+        var total = 0
+        for part in parts {
+            guard let data = try? zip.data(named: part) else { continue }
+            let xml = decodeText(data)
+            let text = ext == "epub" ? stripHTML(xml) : xmlText(xml)
+            if !text.isEmpty {
+                texts.append(text)
+                total += text.count
+            }
+            if total > 2_000_000 { break }
+        }
+        return texts.joined(separator: "\n\n")
+    }
+
+    /// Character data of an XML document; paragraph-like closing tags become line breaks.
+    static func xmlText(_ xml: String) -> String {
+        var s = replacing(xml, "</(a:p|text:p|text:h|row|si|w:p)>", with: "\n")
+        s = replacing(s, "</(c|v|t)>", with: " ")
+        s = replacing(s, "<[^>]+>", with: "")
+        s = decodeEntities(s)
+        s = replacing(s, "[ \t]+", with: " ")
+        s = replacing(s, " *\n *", with: "\n")
+        s = replacing(s, "\n\\s*\n+", with: "\n")
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private static func extractDocx(_ url: URL) throws -> String {
         let name = url.lastPathComponent
