@@ -183,7 +183,7 @@ final class MailStoreTests: XCTestCase {
         XCTAssertEqual(hits.first?.id, "demo2")
         XCTAssertEqual(hits.first?.score ?? 0, 0.954, accuracy: 0.01)
         // Meaning alone below the strong threshold shows nothing.
-        let weak = await store.search(words: [], queryVector: [0, 0.6, 0.8], model: "fake", filter: nil)
+        let weak = await store.search(words: [], queryVector: [1, 1, 0], model: "fake", filter: nil)
         XCTAssertTrue(weak.isEmpty)
 
         await store.deleteAll()
