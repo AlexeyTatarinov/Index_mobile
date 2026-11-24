@@ -174,6 +174,10 @@ struct SearchView: View {
             .onChange(of: speech.transcript) { _, text in
                 if speech.isRecording && !text.isEmpty { query = text }
             }
+            .onChange(of: searchFocused) { _, focused in
+                // Tapping the field while dictating means "I want to fix it": stop listening.
+                if focused && speech.isRecording { speech.stop() }
+            }
             .onChange(of: scope) { _, _ in
                 // Switching the source re-runs the current query there.
                 if !submittedQuery.isEmpty { submit(submittedQuery) }
@@ -251,13 +255,20 @@ struct SearchView: View {
         searchFocused = false
         speech.toggle { text in
             query = text
+            // Open the keyboard on the heard text, so it can be fixed before sending.
+            searchFocused = true
         }
     }
 
-    /// Send button or keyboard Return: stop dictation if needed, then search.
+    /// Send button or keyboard Return: search what the field shows now.
+    /// If dictation is still on, its text is the field's text.
     private func send() {
-        if speech.isRecording { speech.stop() }
-        run(query: query)
+        if speech.isRecording {
+            let heard = speech.stop()
+            run(query: heard.isEmpty ? query : heard)
+        } else {
+            run(query: query)
+        }
     }
 
     /// Runs the query only in the sources the scope covers.
