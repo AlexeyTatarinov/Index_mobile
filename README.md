@@ -112,3 +112,19 @@
 <img src="phase3-multilingual/3-search-mountains.png" width="260" alt="3-search-mountains.png">
 <img src="phase3-multilingual/4-search-date.png" width="260" alt="4-search-date.png">
 <img src="phase3-multilingual/5-log.png" width="260" alt="5-log.png">
+
+## photo-quality
+
+<img src="photo-quality/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="photo-quality/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="photo-quality/11-video-search.png" width="260" alt="11-video-search.png">
+<img src="photo-quality/12-video-player.png" width="260" alt="12-video-player.png">
+<img src="photo-quality/13-resume-no-docs.png" width="260" alt="13-resume-no-docs.png">
+<img src="photo-quality/2-home.png" width="260" alt="2-home.png">
+<img src="photo-quality/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="photo-quality/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="photo-quality/5-detail.png" width="260" alt="5-detail.png">
+<img src="photo-quality/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="photo-quality/7-settings.png" width="260" alt="7-settings.png">
+<img src="photo-quality/8-docs-search.png" width="260" alt="8-docs-search.png">
+<img src="photo-quality/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
