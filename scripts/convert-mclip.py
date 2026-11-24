@@ -73,6 +73,10 @@ assert cos(text_tower(ids, mask)[0], reference) > 0.999, "text wrapper differs f
 # and the table shrinks. Text in kept scripts tokenizes exactly as before.
 import re
 
+# st shares its BERT with text_tower, so reference embeddings are taken before pruning.
+CHECK_TEXTS = ["собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "архитектура Валенсии 2024",
+               "Попугай", "фотография собаки", "a photo of a dog", "a photo of a mountain"]
+original = {t: st.encode([t])[0] for t in CHECK_TEXTS}
 KEEP = re.compile(r"^[\x00-\x7F\u00C0-\u024F\u0400-\u04FF\u2010-\u206F\u20AC\u2116]+$")
 full_vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
 kept = [(t, i) for t, i in full_vocab if (t.startswith("[") and t.endswith("]")) or KEEP.match(t[2:] if t.startswith("##") else t)]
@@ -101,9 +105,9 @@ def encode(text):
     return torch.tensor([[old_to_new.get(i, unk_new) for i in old]]), t["attention_mask"]
 
 
-for text in ["собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "архитектура Валенсии 2024"]:
+for text in CHECK_TEXTS:
     i, m = encode(text)
-    c = cos(text_tower(i, m)[0], st.encode([text])[0])
+    c = cos(text_tower(i, m)[0], original[text])
     print(f"pruned vs original «{text}»", c)
     assert c > 0.999, "pruning changed the embedding of Russian/English text"
 assert dropped_hits == 0, "Russian/English text used a dropped token"
@@ -175,14 +179,14 @@ assert cos(torch_image, ml_image) > 0.99
 for text in ["Попугай", "a dog on the beach"]:
     i, m = encode(text)
     ml_text = text_ml.predict({"input_ids": i.numpy().astype(np.int32), "attention_mask": m.numpy().astype(np.int32)})["embedding"]
-    c = cos(st.encode([text])[0], ml_text)
+    c = cos(original[text], ml_text)
     print(f"text torch vs coreml cos «{text}»", c)
     assert c > 0.98
 
 # Russian and English phrasings of the same thing should land close together.
-ru = st.encode(["фотография собаки"])[0]
-en = st.encode(["a photo of a dog"])[0]
-other = st.encode(["a photo of a mountain"])[0]
+ru = original["фотография собаки"]
+en = original["a photo of a dog"]
+other = original["a photo of a mountain"]
 print("ru/en dog", cos(ru, en), "ru dog / en mountain", cos(ru, other))
 assert cos(ru, en) > cos(ru, other)
 print("done")
