@@ -72,7 +72,6 @@ assert cos(text_tower(ids, mask)[0], reference) > 0.999, "text wrapper differs f
 # digits, punctuation and Latin accents for names), so the other scripts are dropped
 # and the table shrinks. Text in kept scripts tokenizes exactly as before.
 import re
-from transformers import BertTokenizer
 
 KEEP = re.compile(r"^[\x00-\x7F\u00C0-\u024F\u0400-\u04FF\u2010-\u206F\u20AC\u2116]+$")
 full_vocab = sorted(tokenizer.get_vocab().items(), key=lambda kv: kv[1])
@@ -87,17 +86,27 @@ new_embedding = torch.nn.Embedding(len(kept), old_embedding.embedding_dim)
 new_embedding.weight.data = old_embedding.weight.data[torch.tensor([i for _, i in kept])].clone()
 text_tower.bert.embeddings.word_embeddings = new_embedding
 text_tower.bert.config.vocab_size = len(kept)
-tokenizer = BertTokenizer(
-    pruned_vocab_path,
-    do_lower_case=getattr(st.tokenizer, "do_lower_case", False),
-    tokenize_chinese_chars=True,
-    strip_accents=None,
-)
+# Token ids move: remap the original tokenizer's output instead of re-tokenizing, so
+# Python and the Swift tokenizer (which reads the pruned vocabulary) agree exactly.
+old_to_new = {old: new for new, (_, old) in enumerate(kept)}
+unk_new = old_to_new[tokenizer.unk_token_id]
+dropped_hits = 0
+
+
+def encode(text):
+    global dropped_hits
+    t = tokenizer(text, padding="max_length", truncation=True, max_length=MAX_LEN, return_tensors="pt")
+    old = t["input_ids"][0].tolist()
+    dropped_hits += sum(1 for i in old if i not in old_to_new)
+    return torch.tensor([[old_to_new.get(i, unk_new) for i in old]]), t["attention_mask"]
+
+
 for text in ["собака на пляже летом", "Счёт за электричество, март!", "a dog on the beach", "архитектура Валенсии 2024"]:
     i, m = encode(text)
     c = cos(text_tower(i, m)[0], st.encode([text])[0])
     print(f"pruned vs original «{text}»", c)
     assert c > 0.999, "pruning changed the embedding of Russian/English text"
+assert dropped_hits == 0, "Russian/English text used a dropped token"
 ids, mask = encode("собака на пляже")
 
 traced_text = torch.jit.trace(text_tower, (ids, mask))
