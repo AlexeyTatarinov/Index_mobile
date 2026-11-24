@@ -144,6 +144,7 @@ final class SearchEngine: ObservableObject {
             report.append([
                 "query": query,
                 "info": lastQueryInfo ?? "",
+                "videos": VideoEngine.shared.results.count,
                 "hits": results.prefix(20).map {
                     ["file": fileName($0.id), "score": Double($0.score), "adj": Double(lastAdjusted[$0.id] ?? 0), "text": $0.textMatch]
                 },
@@ -559,7 +560,8 @@ final class SearchEngine: ObservableObject {
             }
             let top = fused.sorted { ($0.value, adjusted($0.key)) > ($1.value, adjusted($1.key)) }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
-            VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
+            VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best,
+                                      references: referenceVectors)
 
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }
