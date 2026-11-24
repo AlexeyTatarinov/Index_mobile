@@ -36,6 +36,29 @@ jobs:
       - name: Fetch and compile models
         run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache text embedding model
+        uses: actions/cache@v4
+        with:
+          path: model-cache-e5
+          key: e5-${{ hashFiles('scripts/convert-e5.py', 'scripts/requirements-e5.txt', 'scripts/fetch-e5.sh') }}
+
+      - name: Convert and compile text embedding model
+        run: ./scripts/fetch-e5.sh model-cache-e5 Indexator/Resources/Models
+
+      - name: Cache places
+        uses: actions/cache@v4
+        with:
+          path: places-cache
+          key: places-${{ hashFiles('scripts/fetch-places.sh', 'scripts/build-places.py') }}
+
+      - name: Build offline places table
+        run: ./scripts/fetch-places.sh places-cache Indexator/Resources/Models
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -55,7 +78,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            GMAIL_CLIENT_ID="${{ vars.GMAIL_CLIENT_ID || secrets.GMAIL_CLIENT_ID }}" \
             build
+
+      - name: Check Gmail Client ID is built in
+        run: |
+          ID=$(/usr/libexec/PlistBuddy -c "Print :GmailClientID" build/Build/Products/Release-iphoneos/Indexator.app/Info.plist 2>/dev/null || true)
+          if [[ "$ID" == *.apps.googleusercontent.com ]]; then echo "Gmail Client ID: built in"; else echo "::warning::Gmail Client ID not set (repo variable or secret GMAIL_CLIENT_ID)"; fi
 
       - name: Package IPA
         run: |
@@ -90,6 +119,29 @@ jobs:
       - name: Fetch and compile models
         run: ./scripts/fetch-models.sh model-cache Indexator/Resources/Models
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache text embedding model
+        uses: actions/cache@v4
+        with:
+          path: model-cache-e5
+          key: e5-${{ hashFiles('scripts/convert-e5.py', 'scripts/requirements-e5.txt', 'scripts/fetch-e5.sh') }}
+
+      - name: Convert and compile text embedding model
+        run: ./scripts/fetch-e5.sh model-cache-e5 Indexator/Resources/Models
+
+      - name: Cache places
+        uses: actions/cache@v4
+        with:
+          path: places-cache
+          key: places-${{ hashFiles('scripts/fetch-places.sh', 'scripts/build-places.py') }}
+
+      - name: Build offline places table
+        run: ./scripts/fetch-places.sh places-cache Indexator/Resources/Models
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -108,5 +160,5 @@ jobs:
           retention-days: 30
 
       - name: Publish screenshots to the screenshots branch
-        if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         run: ./scripts/publish-screenshots.sh

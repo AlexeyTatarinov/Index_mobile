@@ -26,11 +26,20 @@ done
 ls sample-photos | wc -l
 xcrun simctl addmedia "$DEVICE" sample-photos/*.jpg
 
+# A sample video: landscape, landscape, the puppy (8-12 s), landscape. Video search
+# should find it for "собака" and open it at the puppy.
+mkdir -p sample-videos
+swift scripts/make-sample-video.swift sample-videos/walk.mp4 4 \
+  sample-photos/1015.jpg sample-photos/1043.jpg sample-photos/237.jpg sample-photos/1035.jpg || true
+[[ -s sample-videos/walk.mp4 ]] && xcrun simctl addmedia "$DEVICE" sample-videos/walk.mp4 || echo "no sample video"
+
 # Builds, installs, runs unit tests and the UI test that taps "Allow Full Access".
 xcodebuild \
   -project Indexator.xcodeproj -scheme Indexator -configuration Debug \
   -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath build-sim \
-  -only-testing:IndexatorTests -only-testing:IndexatorUITests test | tail -40
+  -only-testing:IndexatorTests -only-testing:IndexatorUITests test > test.log 2>&1 \
+  || { grep -E "error: |XCTAssert|failed" test.log | head -60; tail -40 test.log; exit 1; }
+tail -40 test.log
 
 shot() { # name, wait seconds, launch args...
   local name=$1 wait=$2; shift 2
@@ -41,9 +50,38 @@ shot() { # name, wait seconds, launch args...
   echo "Captured $name"
 }
 
-shot 1-index 60 -uiTab index -autoIndex YES
-shot 2-search 25 -uiTab search -autoQuery "собака"
-shot 3-search-mountains 25 -uiTab search -autoQuery "горы и озеро"
-shot 4-search-date 25 -uiTab search -autoQuery "собака 2026"
-shot 5-log 10 -uiTab log -autoQuery "a dog"
+shot 1-settings-indexing 60 -uiTab settings -autoIndex YES
+shot 2-home 15 -uiTab search
+
+# Search quality: run the reference queries on the indexed sample photos and compare
+# with scripts/search-eval.json (expected and forbidden photos per query).
+EVAL_QUERIES=$(python3 -c 'import json;print("|".join(q["query"] for q in json.load(open("scripts/search-eval.json"))["queries"]))')
+EVAL_FILE="$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/search-eval.json"
+rm -f "$EVAL_FILE"
+xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" 2>/dev/null || true
+xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab search -searchEval "$EVAL_QUERIES"
+for _ in $(seq 1 60); do [[ -s "$EVAL_FILE" ]] && break; sleep 5; done
+cp "$EVAL_FILE" "$OUT/search-eval.json" || {
+  echo "no eval output after 5 minutes; app log:"
+  tail -40 "$(dirname "$(dirname "$EVAL_FILE")")/Library/Caches/applog.txt" || true
+}
+mkdir -p "$OUT/samples"
+for f in sample-photos/*.jpg; do sips -Z 320 "$f" --out "$OUT/samples/$(basename "$f" .jpg).png" -s format png >/dev/null || true; done
+EVAL_STATUS=0
+python3 scripts/check-search-eval.py scripts/search-eval.json "$OUT/search-eval.json" > "$OUT/search-eval.txt" || EVAL_STATUS=1
+cat "$OUT/search-eval.txt"
+shot 3-search-grid 25 -uiTab search -autoQuery "собака"
+shot 4-search-cards 25 -uiTab search -autoQuery "горы и озеро" -ui.resultLayout cards
+shot 5-detail 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind photo
+shot 6-search-date 25 -uiTab search -autoQuery "собака 2026" -ui.resultLayout cards
+shot 7-settings 15 -uiTab settings
+shot 8-docs-search 30 -uiTab search -docsDemo YES -autoQuery "как вернуть налог за квартиру" -ui.resultLayout cards
+shot 9-docs-search-en 30 -uiTab search -docsDemo YES -autoQuery "rent payment"
+shot 10-mail-search 20 -uiTab search -mailDemo YES -autoQuery "билет на поезд" -autoMailQuery "билет на поезд" -ui.resultLayout cards
+shot 11-video-search 25 -uiTab search -autoQuery "собака" -ui.resultLayout cards
+shot 12-video-player 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind video
+shot 13-resume-no-docs 25 -uiTab search -autoQuery "моё резюме"
+shot 14-scope-docs 30 -uiTab search -docsDemo YES -ui.searchScope documents -autoQuery "договор аренды"
 ls -la "$OUT"
+# Screenshots are taken either way; a search-quality miss still fails the job.
+exit $EVAL_STATUS
