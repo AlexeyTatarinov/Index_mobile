@@ -52,6 +52,17 @@ shot() { # name, wait seconds, launch args...
 
 shot 1-settings-indexing 60 -uiTab settings -autoIndex YES
 shot 2-home 15 -uiTab search
+
+# Search quality: run the reference queries on the indexed sample photos and compare
+# with scripts/search-eval.json (expected and forbidden photos per query).
+EVAL_QUERIES=$(python3 -c 'import json;print("|".join(q["query"] for q in json.load(open("scripts/search-eval.json"))["queries"]))')
+shot 0-search-eval 40 -uiTab search -searchEval "$EVAL_QUERIES"
+cp "$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/search-eval.json" "$OUT/search-eval.json" || echo "no eval output"
+mkdir -p "$OUT/samples"
+for f in sample-photos/*.jpg; do sips -Z 320 "$f" --out "$OUT/samples/$(basename "$f" .jpg).png" -s format png >/dev/null || true; done
+EVAL_STATUS=0
+python3 scripts/check-search-eval.py scripts/search-eval.json "$OUT/search-eval.json" > "$OUT/search-eval.txt" || EVAL_STATUS=1
+cat "$OUT/search-eval.txt"
 shot 3-search-grid 25 -uiTab search -autoQuery "собака"
 shot 4-search-cards 25 -uiTab search -autoQuery "горы и озеро" -ui.resultLayout cards
 shot 5-detail 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind photo
@@ -64,3 +75,5 @@ shot 11-video-search 25 -uiTab search -autoQuery "собака" -ui.resultLayout
 shot 12-video-player 30 -uiTab search -autoQuery "собака" -autoOpenFirst YES -autoOpenKind video
 shot 13-resume-no-docs 25 -uiTab search -autoQuery "моё резюме"
 ls -la "$OUT"
+# Screenshots are taken either way; a search-quality miss still fails the job.
+exit $EVAL_STATUS

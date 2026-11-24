@@ -121,9 +121,41 @@ final class SearchEngine: ObservableObject {
             VideoEngine.shared.startIndexing(reason: "автотест")
             await VideoEngine.shared.waitForIndexing()
         }
+        if let queries = defaults.string(forKey: "searchEval"), !queries.isEmpty {
+            await runSearchEval(queries.components(separatedBy: "|"))
+        }
         if let query = defaults.string(forKey: "autoQuery"), !query.isEmpty {
             await search(text: query)
         }
+    }
+
+    /// CI search-quality check: `-searchEval "собака|еда|…"` runs each query and writes
+    /// Documents/search-eval.json with the top photo file names, scores and scene labels,
+    /// so scripts/check-search-eval.py can compare them with expectations.
+    private func runSearchEval(_ queries: [String]) async {
+        guard let database else { return }
+        func fileName(_ id: String) -> String {
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return id }
+            return PHAssetResource.assetResources(for: asset).first?.originalFilename ?? id
+        }
+        var report: [[String: Any]] = []
+        for query in queries where !query.isEmpty {
+            await search(text: query)
+            report.append([
+                "query": query,
+                "info": lastQueryInfo ?? "",
+                "hits": results.prefix(20).map { ["file": fileName($0.id), "score": Double($0.score), "text": $0.textMatch] },
+            ])
+        }
+        var photos: [String: [String]] = [:]
+        for id in database.ids {
+            photos[fileName(id)] = (database.labelsById[id] ?? []).prefix(5).map { String(format: "%@ %.2f", $0.0, $0.1) }
+        }
+        let json: [String: Any] = ["queries": report, "photos": photos]
+        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+              let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? data.write(to: dir.appendingPathComponent("search-eval.json"))
+        log.add("Проверка поиска: \(report.count) запросов записано")
     }
 
     func loadModelIfNeeded() async {

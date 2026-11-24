@@ -1,0 +1,20 @@
+{
+  "comment": "Reference queries over the CI sample photos (picsum ids). expect: each must be in the top `within` results. forbid: must not appear at all. empty: no photos expected.",
+  "queries": [
+    {"query": "собака", "expect": ["237.jpg"], "within": 3},
+    {"query": "щенок", "expect": ["237.jpg"], "within": 3},
+    {"query": "a dog", "expect": ["237.jpg"], "within": 3},
+    {"query": "попугай"},
+    {"query": "еда"},
+    {"query": "природа"},
+    {"query": "горы и озеро"},
+    {"query": "архитектура"},
+    {"query": "море"},
+    {"query": "животные"},
+    {"query": "кофе"},
+    {"query": "цветы"},
+    {"query": "машина"},
+    {"query": "люди"},
+    {"query": "билет на поезд", "empty": true}
+  ]
+}
