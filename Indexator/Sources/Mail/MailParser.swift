@@ -52,6 +52,7 @@ enum MailParser {
         var html: [String] = []
         var attachments: [String] = []
         if let payload { collect(payload, plain: &plain, html: &html, attachments: &attachments) }
+        let links = extractLinks(html: html, plain: plain)
 
         var body = plain.joined(separator: "\n\n")
         if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -71,8 +72,47 @@ enum MailParser {
             snippet: decodeEntities(message.snippet ?? ""),
             body: body,
             labels: message.labelIds ?? [],
-            attachments: attachments
+            attachments: attachments,
+            links: links
         )
+    }
+
+    // MARK: Links
+
+    /// Links from HTML anchors (with their text) and bare URLs in plain text,
+    /// without duplicates, tracking pixels and mailto:. At most `limit`.
+    static func extractLinks(html: [String], plain: [String], limit: Int = 30) -> [MailLink] {
+        var result: [MailLink] = []
+        var seen = Set<String>()
+        func add(_ raw: String, _ title: String) {
+            let address = decodeEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard result.count < limit, let url = URL(string: address),
+                  let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+                  url.host != nil, !seen.contains(address) else { return }
+            seen.insert(address)
+            var text = normalizeWhitespace(stripHTML(title)).replacingOccurrences(of: "\n", with: " ")
+            if text.count > 80 { text = String(text.prefix(80)) + "…" }
+            if text == address { text = "" }
+            result.append(MailLink(title: text, url: url))
+        }
+        let anchor = try! NSRegularExpression(
+            pattern: "<a\\s[^>]*?href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>",
+            options: [.caseInsensitive])
+        for page in html {
+            let ns = page as NSString
+            for m in anchor.matches(in: page, range: NSRange(location: 0, length: ns.length)) {
+                add(ns.substring(with: m.range(at: 1)), ns.substring(with: m.range(at: 2)))
+            }
+        }
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for text in plain {
+                let ns = text as NSString
+                for m in detector.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                    if let url = m.url { add(url.absoluteString, "") }
+                }
+            }
+        }
+        return result
     }
 
     private static func collect(_ part: GmailPart, plain: inout [String], html: inout [String], attachments: inout [String]) {
