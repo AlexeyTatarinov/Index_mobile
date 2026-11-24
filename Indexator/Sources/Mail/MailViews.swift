@@ -10,14 +10,17 @@ struct MailSettingsView: View {
     @State private var confirmDelete = false
     @State private var confirmDisconnect = false
 
+    @State private var showClientId = false
+
     var body: some View {
         Form {
-            consentSection
-            if engine.consentGiven {
-                googleSection
-                if engine.isConnected { syncSection }
-                dataSection
+            if engine.isConnected {
+                accountSection
+                syncSection
+            } else {
+                connectSection
             }
+            if engine.storedCount > 0 || engine.isConnected { dataSection }
             if let error = engine.lastError {
                 Section {
                     Text(error).foregroundStyle(.red).textSelection(.enabled)
@@ -36,54 +39,60 @@ struct MailSettingsView: View {
         }
     }
 
-    private var consentSection: some View {
+    /// Not connected: what happens, and one button that does everything.
+    private var connectSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Поиск по почте").font(.headline)
                 Text("""
-                • Приложение получает доступ к Gmail только на чтение. Пароль вводится только на странице Google.
-                • Интернет используется только при синхронизации, которую ты запускаешь сам.
-                • Письма сохраняются только на этом телефоне, ни на какие серверы, кроме Google, ничего не отправляется.
-                • Вложения не скачиваются, сохраняются только их имена.
-                • Отключить доступ и удалить письма можно в любой момент здесь же.
+                • Доступ к Gmail только на чтение, пароль вводится только на странице Google.
+                • Письма скачиваются на этот телефон и ищутся без интернета. Никуда, кроме Google, ничего не отправляется.
+                • Вложения не скачиваются, только их имена.
+                • Отключить доступ и удалить письма можно здесь в любой момент.
                 """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
             }
-            Toggle("Я согласен проиндексировать мою почту", isOn: $engine.consentGiven)
-                .disabled(engine.isConnected)
-        } footer: {
-            if engine.isConnected { Text("Чтобы отозвать согласие, сначала отключи Gmail.") }
-        }
-    }
-
-    private var googleSection: some View {
-        Section {
-            if let account = engine.account {
-                LabeledContent("Аккаунт", value: account)
-                Button("Отключить Gmail", role: .destructive) { confirmDisconnect = true }
-                    .disabled(engine.isSyncing)
-            } else {
+            Picker("Скачать письма за", selection: $engine.period) {
+                ForEach(MailEngine.SyncPeriod.allCases) { Text($0.title).tag($0) }
+            }
+            if engine.period == .custom {
+                DatePicker("Начиная с", selection: $engine.customStart, in: ...Date(), displayedComponents: .date)
+            }
+            Button {
+                Task { await engine.connect() }
+            } label: {
+                HStack {
+                    Text(engine.isConnecting ? "Вход…" : "Согласен, подключить Gmail").bold()
+                    Spacer()
+                    if engine.isConnecting { ProgressView() }
+                }
+            }
+            .disabled(engine.config == nil || engine.isConnecting)
+            if !engine.hasBundledClientId || showClientId {
                 TextField("Client ID (…apps.googleusercontent.com)", text: $engine.clientId, axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.footnote.monospaced())
-                if !engine.clientId.isEmpty && engine.config == nil {
+                if !engine.clientId.isEmpty && GoogleOAuthConfig(clientId: engine.clientId) == nil {
                     Text("Это не похоже на Client ID типа iOS.").font(.footnote).foregroundStyle(.red)
                 }
-                Button {
-                    Task { await engine.connect() }
-                } label: {
-                    if engine.isConnecting { ProgressView() } else { Text("Войти в Google") }
-                }
-                .disabled(engine.config == nil || engine.isConnecting)
             }
-        } header: {
-            Text("Gmail")
         } footer: {
-            if !engine.isConnected {
-                Text("Client ID берётся из своего проекта в Google Cloud Console (клиент OAuth типа iOS, Bundle ID io.github.alexeytatarinov.indexator). Это не секрет, но храним его только на телефоне.")
+            if engine.hasBundledClientId {
+                Button(showClientId ? "Скрыть Client ID" : "Свой Client ID") { showClientId.toggle() }
+                    .font(.footnote)
+            } else {
+                Text("В эту сборку Client ID не встроен, вставь его один раз (клиент OAuth типа iOS из Google Cloud).")
             }
+        }
+    }
+
+    private var accountSection: some View {
+        Section("Gmail") {
+            LabeledContent("Аккаунт", value: engine.account ?? "")
+            Button("Отключить Gmail", role: .destructive) { confirmDisconnect = true }
+                .disabled(engine.isSyncing)
         }
     }
 
@@ -141,7 +150,8 @@ struct MailDetailView: View {
     @State private var message: MailMessage?
     @State private var loaded = false
     @State private var links: [MailLink] = []
-    @State private var linksExpanded = true
+    @State private var linksExpanded = false
+    @State private var quotedExpanded = false
     @Environment(\.openURL) private var openURL
 
     /// Body text with web addresses turned into tappable links.
@@ -181,7 +191,7 @@ struct MailDetailView: View {
                                     Link(destination: link.url) {
                                         VStack(alignment: .leading, spacing: 1) {
                                             Text(link.label).font(.callout).lineLimit(2)
-                                            Text(link.url.host ?? "").font(.caption2).foregroundStyle(.secondary)
+                                            Text(MailReadable.shortHost(link.url)).font(.caption2).foregroundStyle(.secondary)
                                         }
                                     }
                                 }
@@ -191,9 +201,21 @@ struct MailDetailView: View {
                         .font(.footnote)
                     }
                     Divider()
-                    Text(Self.linkified(m.body.isEmpty ? m.snippet : m.body))
-                        .font(.callout)
+                    let readable = MailReadable.body(m.body.isEmpty ? m.snippet : m.body)
+                    Text(MailReadable.attributed(readable.text))
+                        .font(.body)
+                        .lineSpacing(3)
                         .textSelection(.enabled)
+                    if !readable.quoted.isEmpty {
+                        DisclosureGroup("Предыдущие письма", isExpanded: $quotedExpanded) {
+                            Text(MailReadable.attributed(readable.quoted))
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .padding(.top, 4)
+                        }
+                        .font(.footnote)
+                    }
                 }
                 .padding()
             } else if loaded {

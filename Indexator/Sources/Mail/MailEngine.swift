@@ -71,7 +71,18 @@ final class MailEngine: ObservableObject {
     private let log = AppLog.shared
 
     var isConnected: Bool { account != nil }
-    var config: GoogleOAuthConfig? { GoogleOAuthConfig(clientId: clientId) }
+    /// Client ID baked into the build by CI (repository variable GMAIL_CLIENT_ID), if any.
+    nonisolated static let bundledClientId: String? = {
+        let value = (Bundle.main.object(forInfoDictionaryKey: "GmailClientID") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return GoogleOAuthConfig(clientId: value) != nil ? value : nil
+    }()
+
+    /// The Client ID typed in settings wins over the bundled one.
+    var config: GoogleOAuthConfig? {
+        GoogleOAuthConfig(clientId: clientId) ?? Self.bundledClientId.flatMap { GoogleOAuthConfig(clientId: $0) }
+    }
+    var hasBundledClientId: Bool { Self.bundledClientId != nil }
 
     private init() {
         do {
@@ -86,13 +97,26 @@ final class MailEngine: ObservableObject {
             // Emails downloaded before the text model was available get their vectors now.
             if storedCount > 0 { await indexPending() }
         }
-        Task { await auth.configure(GoogleOAuthConfig(clientId: clientId)) }
+        Task {
+            await auth.configure(config)
+            await refreshCounts()
+            syncIfStale()
+        }
+    }
+
+    /// Downloads new mail on launch when the last sync is older than `hours`.
+    func syncIfStale(hours: Double = 6) {
+        guard isConnected, !isSyncing, !UserDefaults.standard.bool(forKey: "mailDemo") else { return }
+        if let last = lastSync, Date().timeIntervalSince(last) < hours * 3600 { return }
+        log.add("Почта: автоматическая синхронизация")
+        startSync()
     }
 
     // MARK: - Account
 
+    /// One tap: records consent, signs in, then downloads and indexes right away.
     func connect() async {
-        guard consentGiven else { lastError = "Сначала подтверди согласие."; return }
+        consentGiven = true
         guard let config else { lastError = GmailAuthError.badClientId.errorDescription; return }
         isConnecting = true
         lastError = nil
@@ -104,6 +128,7 @@ final class MailEngine: ObservableObject {
             let profile = try await GmailClient(auth: auth).profile()
             account = profile.emailAddress
             log.add("Gmail подключён: \(profile.emailAddress), писем в ящике: \(profile.messagesTotal ?? 0)")
+            startSync()
         } catch GmailAuthError.cancelled {
             log.add("Вход в Gmail отменён")
         } catch {

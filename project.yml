@@ -26,6 +26,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIFileSharingEnabled: true
+        # Gmail OAuth client (public identifier, not a secret). Set by CI from the
+        # repository variable GMAIL_CLIENT_ID; empty means "type it in the app".
+        GmailClientID: $(GMAIL_CLIENT_ID)
         LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         NSPhotoLibraryUsageDescription: Indexator строит на телефоне поисковый индекс по твоим фото. Ничего не отправляется в интернет.
