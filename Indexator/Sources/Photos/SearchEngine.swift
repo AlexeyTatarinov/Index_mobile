@@ -466,36 +466,47 @@ final class SearchEngine: ObservableObject {
             let scores = VectorMath.scores(query: vector, matrix: database.vectors, rows: count)
             func score(_ row: Int) -> Float { row < scores.count ? scores[row] : 0 }
 
-            // Keep only photos reasonably close to the best one, so a rare subject
-            // does not get padded with unrelated photos.
+            // CLIP decides what is in the photo. Keep only photos close to the best one,
+            // so a rare subject is not padded with lookalikes (parrot → capybara).
             let candidates = (0..<scores.count).filter(isAllowed).sorted { scores[$0] > scores[$1] }
             let best = candidates.first.map(score) ?? 0
-            // Below about 0.23 ViT-B/32 is guessing (in tests an irrelevant query like
+            // Below about 0.24 ViT-B/32 is guessing (in tests an irrelevant query like
             // "билет на поезд" topped out at 0.22), so such photos are not shown at all.
-            let cutoff = max(best - 0.05, best * 0.82, Self.minimumScore)
-            let clipRanked = Array(candidates.prefix { score($0) >= cutoff }.prefix(400))
-            let words = (parsed.text + " " + semantic).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-            let textRanked = database.textMatches(words: words).filter(isAllowed)
+            let cutoff = max(best - 0.04, best * 0.86, Self.minimumScore)
+            let clipRanked = Array(candidates.prefix { score($0) >= cutoff }.prefix(300))
+
+            // Text on the photo is explicit evidence and may add photos on its own, but the
+            // city words are already a GPS filter and do not count as text here.
+            let placeWords = placeMatch?.words ?? []
+            let words = (parsed.text + " " + semantic)
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+                .filter { !placeWords.contains(PlaceIndex.normalize($0)) }
+            let textRanked = words.isEmpty ? [] : database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
 
-            // Scene labels from Apple's classifier: steadier than CLIP on broad words.
-            let wantedLabels = LabelQuery.labels(for: parsed.text + " " + semantic).labels
-            var labelRanked: [Int] = []
+            // Scene labels from Apple's classifier never add photos by themselves (a GPS tag
+            // plus a vague label pulled in a catamaran for «архитектура»). They lift photos
+            // CLIP already likes, and rescue ones just under the cutoff when the label is sure.
+            let wantedLabels = LabelQuery.labels(for: semantic).labels
+            var labelScore: [Int: Float] = [:]
             if !wantedLabels.isEmpty {
-                var labelScore: [Int: Float] = [:]
-                for row in 0..<count where isAllowed(row) {
-                    guard let labels = database.labelsById[database.ids[row]] else { continue }
-                    let best = labels.filter { wantedLabels.contains($0.0) }.map(\.1).max() ?? 0
-                    if best >= 0.3 { labelScore[row] = best }
+                for row in candidates.prefix(600) where score(row) >= cutoff - 0.02 {
+                    guard row < database.ids.count, let labels = database.labelsById[database.ids[row]] else { continue }
+                    let sure = labels.filter { wantedLabels.contains($0.0) }.map(\.1).max() ?? 0
+                    if sure >= 0.3 { labelScore[row] = sure }
                 }
-                labelRanked = labelScore.sorted { $0.value > $1.value }.prefix(400).map(\.key)
             }
+            let rescued = labelScore.filter { score($0.key) < cutoff && $0.value >= 0.6 }.map(\.key)
+            let labelRanked = labelScore.sorted { $0.value > $1.value }.map(\.key)
 
-            // Reciprocal rank fusion of the two lists.
+            // Reciprocal rank fusion over the photos that made it in.
             var fused: [Int: Double] = [:]
             for (rank, row) in clipRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
+            for row in rescued { fused[row, default: 0] += 0 }
             for (rank, row) in textRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
-            for (rank, row) in labelRanked.enumerated() { fused[row, default: 0] += 1.0 / Double(60 + rank) }
+            for (rank, row) in labelRanked.enumerated() where fused[row] != nil {
+                fused[row, default: 0] += 1.0 / Double(60 + rank)
+            }
             let top = fused.sorted { $0.value > $1.value }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
             VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best)
@@ -506,7 +517,7 @@ final class SearchEngine: ObservableObject {
             info.append(String(format: "похожих %d, лучший %.2f", clipRanked.count, best))
             info.append(String(format: "текст %.0f мс, поиск %.0f мс", (encoded - start) * 1000, (done - encoded) * 1000))
             if !textRanked.isEmpty { info.append("совпадений в тексте на фото: \(textRanked.count)") }
-            if !wantedLabels.isEmpty { info.append("по меткам сцен: \(labelRanked.count)") }
+            if !wantedLabels.isEmpty { info.append("усилено метками сцен: \(labelRanked.count)") }
             lastQueryInfo = info.joined(separator: " · ")
             log.add("Запрос «\(shownQuery)» → «\(semantic)»: \(lastQueryInfo ?? "")")
         }
@@ -549,7 +560,7 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Helpers
 
-    nonisolated static let minimumScore: Float = 0.23
+    nonisolated static let minimumScore: Float = 0.24
 
     nonisolated static func prompt(for text: String) -> String {
         // The multilingual text tower takes other languages as they are.
