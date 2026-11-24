@@ -311,10 +311,7 @@ final class DocumentStore {
 
     /// Chunk ids whose text matches the words (prefix match), best first.
     func keywordMatches(words: [String], limit: Int = 300) -> [Int64] {
-        let terms = words
-            .map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }
-            .filter { $0.count >= 3 && !DocumentStore.stopWords.contains($0) }
-            .map { DocumentStore.stem($0) }
+        let terms = DocumentRelevance.terms(words.joined(separator: " "))
         guard !terms.isEmpty else { return [] }
         let match = terms.map { "\"\($0)\"*" }.joined(separator: " OR ")
         var ids: [Int64] = []
@@ -333,6 +330,11 @@ final class DocumentStore {
         "как", "что", "это", "для", "при", "где", "или", "его", "она", "они", "все", "мне", "меня",
         "был", "была", "было", "про", "без", "над", "под", "чем", "тот", "эта", "этот", "так", "уже",
         "the", "and", "for", "with", "from", "that", "this", "are", "was", "what", "how", "about",
+        "мой", "моя", "моё", "мое", "мои", "моих", "мою", "свой", "своё", "найди", "найти", "покажи",
+        "на", "по", "за", "не", "от", "до", "из", "во", "со", "об", "то", "же", "ли", "бы", "да", "он",
+        "мы", "вы", "ты", "их", "ее", "её", "но", "уж", "ко",
+        "of", "to", "in", "on", "at", "is", "it", "by", "an", "or", "as", "be", "my", "me", "we", "us",
+        "do", "no", "so", "up", "find", "show",
     ]
 
     /// Crude stemming for prefix search: "налоговый" → "налогов", "договора" → "догово".
@@ -370,17 +372,23 @@ final class DocumentStore {
         return result
     }
 
-    /// Documents whose file name contains the query, for "find the file called …".
-    func documentNameMatches(_ query: String, limit: Int = 50) -> [Int64] {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard q.count >= 3 else { return [] }
+    /// Documents whose file name or path contains any of the stems, as their first chunk.
+    func documentTermMatches(terms: [String], limit: Int = 200) -> [Int64] {
+        guard !terms.isEmpty else { return [] }
+        let clause = terms.map { _ in "(d.name LIKE ? OR d.path LIKE ?)" }.joined(separator: " OR ")
         var ids: [Int64] = []
         try? withStatement("""
             SELECT MIN(c.id) FROM documents d JOIN chunks c ON c.doc_id = d.id
-            WHERE d.name LIKE ? GROUP BY d.id LIMIT ?
+            WHERE \(clause) GROUP BY d.id LIMIT ?
             """) { stmt in
-            sqlite3_bind_text(stmt, 1, "%\(q)%", -1, SQLITE_TRANSIENT)
-            sqlite3_bind_int(stmt, 2, Int32(limit))
+            var index: Int32 = 1
+            for term in terms {
+                for _ in 0..<2 {
+                    sqlite3_bind_text(stmt, index, "%\(term)%", -1, SQLITE_TRANSIENT)
+                    index += 1
+                }
+            }
+            sqlite3_bind_int(stmt, index, Int32(limit))
             while sqlite3_step(stmt) == SQLITE_ROW {
                 ids.append(sqlite3_column_int64(stmt, 0))
             }

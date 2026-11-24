@@ -52,6 +52,11 @@ struct DocumentSettingsView: View {
                 } label: {
                     Label("Добавить файлы", systemImage: "doc.badge.plus")
                 }
+                if let notice = engine.folderNotice {
+                    Text(notice)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Папки")
             } footer: {
