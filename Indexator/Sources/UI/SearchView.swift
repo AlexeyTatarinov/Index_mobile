@@ -27,6 +27,7 @@ struct SearchView: View {
     @State private var hidden: Set<String> = []
     @State private var didAutoOpen = false
     @State private var submittedQuery = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
+    @AppStorage("ui.searchScope") private var scope: SearchScope = .all
 
     /// All results, mapped to the shared card model, minus excluded and deleted photos.
     private var items: [ResultItem] {
@@ -42,7 +43,7 @@ struct SearchView: View {
         let videos = video.results
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
             .map(ResultItem.init(video:))
-        return documents + emails + Self.mergeByScore(photos, videos)
+        return (documents + emails + Self.mergeByScore(photos, videos)).filter { scope.includes($0.kind) }
     }
 
     /// Photos and videos in one list: a video goes before the first photo it beats.
@@ -61,8 +62,7 @@ struct SearchView: View {
     }
 
     private var showingResults: Bool {
-        !query.trimmingCharacters(in: .whitespaces).isEmpty
-            && !submittedQuery.isEmpty
+        !submittedQuery.isEmpty
             && (engine.lastQueryInfo != nil || docs.lastQueryInfo != nil || !engine.results.isEmpty || !docs.results.isEmpty || !mail.results.isEmpty || !video.results.isEmpty)
     }
 
@@ -99,6 +99,10 @@ struct SearchView: View {
                             .padding(.horizontal)
                     }
                     if showingResults {
+                        CurrentQueryBar(query: submittedQuery, scope: scope) {
+                            query = submittedQuery
+                            searchFocused = true
+                        }
                         ResultsView(
                             items: items,
                             info: queryInfo,
@@ -106,13 +110,14 @@ struct SearchView: View {
                             onOpen: openItem,
                             onAddToAlbum: { albumFor = $0 },
                             onDeleted: { hidden.insert($0.id) },
-                            intent: QueryIntent.detect(submittedQuery),
+                            intent: scope == .all ? QueryIntent.detect(submittedQuery)
+                                : QueryIntent(wantsDocuments: scope == .documents, wantsMail: scope == .mail),
                             docsConnected: !docs.userFolders.isEmpty,
                             mailConnected: mail.isConnected,
                             onConnectDocs: { router.openSettings(.documents) },
                             onConnectMail: { router.openSettings(.mail) }
                         )
-                        .id(submittedQuery)
+                        .id(submittedQuery + scope.rawValue)
                     } else {
                         HomeView(onQuery: run(query:))
                     }
@@ -122,6 +127,7 @@ struct SearchView: View {
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 8) {
+                    ScopePicker(scope: $scope)
                     if speech.isRecording {
                         ListeningBanner(transcript: speech.transcript)
                     }
@@ -168,8 +174,9 @@ struct SearchView: View {
             .onChange(of: speech.transcript) { _, text in
                 if speech.isRecording && !text.isEmpty { query = text }
             }
-            .onChange(of: query) { _, text in
-                if text.isEmpty { submittedQuery = "" }
+            .onChange(of: scope) { _, _ in
+                // Switching the source re-runs the current query there.
+                if !submittedQuery.isEmpty { submit(submittedQuery) }
             }
             .onChange(of: router.focusRequest) { _, _ in searchFocused = true }
             .onChange(of: router.voiceRequest) { _, _ in
@@ -234,7 +241,9 @@ struct SearchView: View {
         searchFocused = false
         submittedQuery = trimmed
         settings.remember(query: trimmed)
-        submit()
+        submit(trimmed)
+        // The query moves to the bar above the results; the field is free for the next one.
+        query = ""
     }
 
     /// Mic: dictation fills the field; the user checks it and presses Send.
@@ -251,11 +260,11 @@ struct SearchView: View {
         run(query: query)
     }
 
-    private func submit() {
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Runs the query only in the sources the scope covers.
+    private func submit(_ text: String) {
         guard !text.isEmpty else { return }
-        Task { await DocumentEngine.shared.search(text) }
-        if mail.consentGiven { Task { await mail.search(text) } }
-        Task { await engine.search(text: text) }
+        if scope.includes(.document) { Task { await DocumentEngine.shared.search(text) } }
+        if scope.includes(.mail) && mail.consentGiven { Task { await mail.search(text) } }
+        if scope.includes(.photo) { Task { await engine.search(text: text) } }
     }
 }
