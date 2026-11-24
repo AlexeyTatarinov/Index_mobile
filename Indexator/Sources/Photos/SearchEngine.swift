@@ -513,8 +513,11 @@ final class SearchEngine: ObservableObject {
             let candidates = (0..<scores.count).filter(isAllowed).sorted { adjusted($0) > adjusted($1) }
             let best = candidates.map(score).max() ?? 0
             let bestAdjusted = candidates.first.map(adjusted) ?? 0
-            let cutoff = max(bestAdjusted - Self.adjustedMargin, Self.minimumAdjusted)
-            let clipRanked = Array(candidates.prefix { adjusted($0) >= cutoff }.filter { score($0) >= Self.minimumScore }.prefix(300))
+            // Nothing is shown when even the best photo barely beats its own average
+            // («попугай» with no parrots: +0.02; a real match: +0.04 and more).
+            let cutoff = max(bestAdjusted - Self.adjustedMargin, bestAdjusted * 0.5, Self.minimumAdjusted / 2)
+            let clipRanked = bestAdjusted < Self.minimumAdjusted ? [] :
+                Array(candidates.prefix { adjusted($0) >= cutoff }.filter { score($0) >= Self.minimumScore }.prefix(300))
             lastAdjusted = Dictionary(uniqueKeysWithValues: candidates.prefix(40).map { (database.ids[$0], adjusted($0)) })
 
             // Text on the photo is explicit evidence and may add photos on its own, but the
@@ -528,17 +531,20 @@ final class SearchEngine: ObservableObject {
 
             // Scene labels from Apple's classifier never add photos by themselves (a GPS tag
             // plus a vague label pulled in a catamaran for «архитектура»). They lift photos
-            // CLIP already likes, and rescue ones just under the cutoff when the label is sure.
+            // CLIP already likes, and add ones CLIP is at least mildly positive about.
             let wantedLabels = LabelQuery.labels(for: semantic).labels
             var labelScore: [Int: Float] = [:]
             if !wantedLabels.isEmpty {
-                for row in candidates.prefix(600) where adjusted(row) >= cutoff - 0.01 {
+                for row in candidates.prefix(600) where adjusted(row) >= 0.005 {
                     guard row < database.ids.count, let labels = database.labelsById[database.ids[row]] else { continue }
                     let sure = labels.filter { wantedLabels.contains($0.0) }.map(\.1).max() ?? 0
                     if sure >= 0.3 { labelScore[row] = sure }
                 }
             }
-            let rescued = labelScore.filter { adjusted($0.key) < cutoff && $0.value >= 0.6 }.map(\.key)
+            // A sure label rescues a photo CLIP is mildly positive about, even when CLIP alone shows
+            // nothing: broad words like «еда» are where Apple's classifier beats CLIP.
+            let clipSet = Set(clipRanked)
+            let rescued = labelScore.filter { !clipSet.contains($0.key) && $0.value >= 0.6 }.map(\.key)
             let labelRanked = labelScore.sorted { $0.value > $1.value }.map(\.key)
 
             // Reciprocal rank fusion over the photos that made it in.
@@ -607,7 +613,7 @@ final class SearchEngine: ObservableObject {
     /// How far below the best adjusted score a photo may be and still be shown.
     nonisolated static let adjustedMargin: Float = 0.025
     /// The best photo must beat its own average by this much, or nothing is shown.
-    nonisolated static let minimumAdjusted: Float = 0.015
+    nonisolated static let minimumAdjusted: Float = 0.03
 
     /// Adjusted scores of the last search's top photos, for the CI quality report.
     private(set) var lastAdjusted: [String: Float] = [:]
