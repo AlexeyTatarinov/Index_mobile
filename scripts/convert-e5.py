@@ -12,12 +12,12 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 
 import numpy as np
 import torch
 import coremltools as ct
 import coremltools.optimize.coreml as cto
+from tokenizers import Tokenizer
 from transformers import AutoModel, AutoTokenizer
 
 MODEL_ID = os.environ.get("E5_MODEL", "intfloat/multilingual-e5-small")
@@ -58,6 +58,53 @@ class E5Embedder(torch.nn.Module):
         mean = mean / peak
         norm = torch.sqrt((mean * mean).sum(dim=-1, keepdim=True)).clamp(1e-6, 1e4)
         return mean / norm
+
+
+def allowed_char(ch):
+    """Scripts the app needs: Latin, Cyrillic, digits, punctuation and common symbols."""
+    o = ord(ch)
+    return (
+        o < 0x0250                     # Basic Latin, Latin-1, Latin Extended-A/B
+        or 0x0400 <= o <= 0x052F       # Cyrillic + supplement
+        or 0x1E00 <= o <= 0x1EFF       # Latin Extended Additional
+        or 0x2000 <= o <= 0x22FF       # punctuation, currency, letterlike (№), arrows, math
+        or o == 0x2581                 # ▁ (SentencePiece word start)
+    )
+
+
+def prune_vocabulary(tokenizer, model):
+    """Drops pieces of other scripts (CJK, Arabic, ...) to shrink the embedding table.
+    Text in Latin/Cyrillic tokenizes exactly as before (dropped pieces could never
+    match it); the kept rows keep their original order, so special ids stay 0..3.
+    Returns the pruned tokenizers.Tokenizer and the old -> new id map."""
+    data = json.loads(tokenizer.backend_tokenizer.to_str())
+    vocab = data["model"]["vocab"]
+    specials = {t["id"] for t in data.get("added_tokens", [])} | {0, 1, 2, 3}
+    keep = [i for i, (piece, _) in enumerate(vocab) if i in specials or all(allowed_char(c) for c in piece)]
+    old_to_new = {old: new for new, old in enumerate(keep)}
+    data["model"]["vocab"] = [vocab[i] for i in keep]
+    data["model"]["unk_id"] = old_to_new[data["model"].get("unk_id", 3)]
+    data["added_tokens"] = [dict(t, id=old_to_new[t["id"]]) for t in data.get("added_tokens", []) if t["id"] in old_to_new]
+
+    def remap(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "ids" and isinstance(value, list):
+                    node[key] = [old_to_new[v] for v in value]
+                else:
+                    remap(value)
+        elif isinstance(node, list):
+            for value in node:
+                remap(value)
+    remap(data.get("post_processor"))
+
+    with torch.no_grad():
+        old_table = model.embeddings.word_embeddings.weight
+        new_table = old_table[torch.tensor(keep)].clone()
+        model.embeddings.word_embeddings = torch.nn.Embedding.from_pretrained(new_table, freeze=True, padding_idx=1)
+        model.config.vocab_size = len(keep)
+    print(f"Vocabulary pruned: {len(vocab)} -> {len(keep)} pieces")
+    return Tokenizer.from_str(json.dumps(data, ensure_ascii=False)), old_to_new, data
 
 
 def reference_embedding(model, ids):
@@ -106,10 +153,30 @@ def main():
         if len(zero_rows) > 0:
             table[zero_rows] = 1e-4
 
+    # Original ids and embeddings, to prove pruning changes nothing for RU/EN text.
+    original = {t: (tokenizer(t)["input_ids"], reference_embedding(model, tokenizer(t)["input_ids"])) for t in REFERENCE_TEXTS}
+
+    pruned, old_to_new, pruned_json = prune_vocabulary(tokenizer, model)
+    for text, (old_ids, old_emb) in original.items():
+        new_ids = pruned.encode(text).ids
+        if new_ids != [old_to_new[i] for i in old_ids]:
+            sys.exit(f"pruned tokenizer differs for {text!r}: {new_ids}")
+        c = cosine(reference_embedding(model, new_ids), old_emb)
+        if c < 0.9999:
+            sys.exit(f"pruned model differs for {text!r}: cosine {c:.6f}")
+
     # tokenizer.json in the HF fast format, read by SentencePieceTokenizer.swift.
-    with tempfile.TemporaryDirectory() as tmp:
-        tokenizer.save_pretrained(tmp)
-        shutil.copyfile(os.path.join(tmp, "tokenizer.json"), os.path.join(out_dir, "e5_tokenizer.json"))
+    with open(os.path.join(out_dir, "e5_tokenizer.json"), "w", encoding="utf-8") as f:
+        json.dump(pruned_json, f, ensure_ascii=False)
+
+    class Pruned:
+        def __call__(self, text):
+            return {"input_ids": pruned.encode(text).ids}
+
+        def convert_ids_to_tokens(self, ids):
+            return [pruned.id_to_token(i) for i in ids]
+
+    tokenizer = Pruned()
 
     wrapper = E5Embedder(model).eval()
     example = padded(tokenizer(REFERENCE_TEXTS[0])["input_ids"])
