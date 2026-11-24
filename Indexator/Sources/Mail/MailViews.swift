@@ -93,6 +93,10 @@ struct MailSettingsView: View {
                 ForEach(MailEngine.SyncPeriod.allCases) { Text($0.title).tag($0) }
             }
             .disabled(engine.isSyncing)
+            if engine.period == .custom {
+                DatePicker("Начиная с", selection: $engine.customStart, in: ...Date(), displayedComponents: .date)
+                    .disabled(engine.isSyncing)
+            }
             Toggle("Пропускать «Промоакции» и «Соцсети»", isOn: $engine.skipPromotions)
                 .disabled(engine.isSyncing)
             if engine.isSyncing {
@@ -136,7 +140,23 @@ struct MailDetailView: View {
     let messageId: String
     @State private var message: MailMessage?
     @State private var loaded = false
+    @State private var links: [MailLink] = []
+    @State private var linksExpanded = true
     @Environment(\.openURL) private var openURL
+
+    /// Body text with web addresses turned into tappable links.
+    static func linkified(_ text: String) -> AttributedString {
+        var result = AttributedString(text)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return result }
+        let ns = text as NSString
+        for match in detector.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            guard let url = match.url, let range = Range(match.range, in: text),
+                  let lower = AttributedString.Index(range.lowerBound, within: result),
+                  let upper = AttributedString.Index(range.upperBound, within: result) else { continue }
+            result[lower..<upper].link = url
+        }
+        return result
+    }
 
     var body: some View {
         ScrollView {
@@ -154,8 +174,24 @@ struct MailDetailView: View {
                         Label(m.attachments.joined(separator: ", "), systemImage: "paperclip")
                             .font(.footnote)
                     }
+                    if !links.isEmpty {
+                        DisclosureGroup("Ссылки (\(links.count))", isExpanded: $linksExpanded) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(links, id: \.self) { link in
+                                    Link(destination: link.url) {
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(link.label).font(.callout).lineLimit(2)
+                                            Text(link.url.host ?? "").font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.top, 4)
+                        }
+                        .font(.footnote)
+                    }
                     Divider()
-                    Text(m.body.isEmpty ? m.snippet : m.body)
+                    Text(Self.linkified(m.body.isEmpty ? m.snippet : m.body))
                         .font(.callout)
                         .textSelection(.enabled)
                 }
@@ -184,6 +220,10 @@ struct MailDetailView: View {
         .task(id: messageId) {
             message = await MailEngine.shared.message(id: messageId)
             loaded = true
+            links = message?.links ?? []
+            if links.isEmpty, message != nil {
+                links = await MailEngine.shared.fetchMissingLinks(id: messageId)
+            }
         }
     }
 }

@@ -17,9 +17,19 @@ struct MailMessage: Equatable {
     let body: String            // plain text, HTML already stripped
     let labels: [String]
     let attachments: [String]   // file names only, contents are not downloaded
+    var links: [MailLink] = []  // links found in the email, in order
 
     /// Name if present, otherwise the address.
     var senderName: String { MailParser.displayName(sender) }
+}
+
+/// A link from an email: visible text (may be empty) and the address.
+struct MailLink: Equatable, Hashable {
+    let title: String
+    let url: URL
+
+    /// Text shown in the list: the link text, otherwise the host.
+    var label: String { title.isEmpty ? (url.host ?? url.absoluteString) : title }
 }
 
 /// A search result, mapped to the shared result card by the UI.
