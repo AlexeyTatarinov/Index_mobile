@@ -45,6 +45,8 @@ final class DocumentEngine: ObservableObject {
     @Published private(set) var results: [DocumentHit] = []
     @Published private(set) var lastQueryInfo: String?
     @Published private(set) var lastError: String?
+    /// One-line note after adding a folder (already connected, replaced nested ones).
+    @Published private(set) var folderNotice: String?
     /// Files in iCloud that are not on the phone yet; their download was requested.
     @Published private(set) var pendingDownloads = 0
 
@@ -86,6 +88,7 @@ final class DocumentEngine: ObservableObject {
             Task { @MainActor in DocumentEngine.shared.refreshChanged() }
         }
         ensureAppFolder()
+        removeDuplicateFolders()
         if DocumentDemo.isEnabled {
             Task { @MainActor in await DocumentDemo.run(engine: DocumentEngine.shared) }
         }
@@ -106,6 +109,27 @@ final class DocumentEngine: ObservableObject {
         // An empty bookmark marks the app's own Documents folder; its path is resolved fresh each time.
         _ = try? store.addFolder(name: Self.appFolderName, bookmark: Data(), isDirectory: true)
         refreshState()
+    }
+
+    /// Drops folders connected twice, or lying inside another connected folder,
+    /// left over from before adding checked for duplicates. The oldest copy stays.
+    private func removeDuplicateFolders() {
+        let resolved = folders.compactMap { f in folderURL(f).map { (folder: f, path: DocumentRelevance.normalizedPath($0)) } }
+        var drop: [DocumentFolder] = []
+        for (i, item) in resolved.enumerated() where !item.folder.bookmark.isEmpty {
+            let covered = resolved.enumerated().contains { j, other in
+                guard j != i, other.folder.isDirectory else { return false }
+                if other.path == item.path { return j < i }
+                return DocumentRelevance.isSameOrInside(item.path, other.path)
+            }
+            if covered { drop.append(item.folder) }
+        }
+        for folder in drop {
+            if let url = resolvedFolders.removeValue(forKey: folder.id) { url.stopAccessingSecurityScopedResource() }
+            store?.removeFolder(id: folder.id)
+            log.add("Убран повтор папки: \(folder.name)")
+        }
+        if !drop.isEmpty { refreshState() }
     }
 
     var indexedChunks: Int { stats.chunks }
@@ -144,8 +168,31 @@ final class DocumentEngine: ObservableObject {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            let path = DocumentRelevance.normalizedPath(url)
+            // Already connected, itself or inside a connected folder: nothing to add.
+            for folder in folders where folder.isDirectory || !isDirectory {
+                guard let existing = folderURL(folder) else { continue }
+                let existingPath = DocumentRelevance.normalizedPath(existing)
+                if path == existingPath || (folder.isDirectory && DocumentRelevance.isSameOrInside(path, existingPath)) {
+                    folderNotice = path == existingPath
+                        ? "«\(url.lastPathComponent)» уже подключена."
+                        : "«\(url.lastPathComponent)» уже внутри подключённой папки «\(folder.name)»."
+                    log.add(folderNotice ?? "")
+                    return
+                }
+            }
             let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
             guard let store else { return }
+            // A wider folder replaces the connected folders and files inside it.
+            if isDirectory {
+                let inside = userFolders.filter { folder in
+                    folderURL(folder).map { DocumentRelevance.isSameOrInside(DocumentRelevance.normalizedPath($0), path) } ?? false
+                }
+                for folder in inside { removeFolder(folder) }
+                folderNotice = inside.isEmpty ? nil : "Заменила вложенные: \(inside.map(\.name).joined(separator: ", "))."
+            } else {
+                folderNotice = nil
+            }
             let id = try store.addFolder(name: url.lastPathComponent, bookmark: bookmark, isDirectory: isDirectory)
             log.add("Добавлена \(isDirectory ? "папка" : "файл"): \(url.lastPathComponent)")
             refreshState()
@@ -516,8 +563,8 @@ final class DocumentEngine: ObservableObject {
         let start = CFAbsoluteTimeGetCurrent()
 
         // Meaning: cosine similarity of the query with every chunk.
-        var semantic: [(Int64, Float)] = []
         var scoreOf: [Int64: Float] = [:]
+        var semantic: [(Int64, Float)] = []
         if let embedder, store.vectorCount > 0 {
             let ids = store.vectorChunkIds
             let matrix = store.vectors
@@ -526,41 +573,58 @@ final class DocumentEngine: ObservableObject {
                 let scores = await onWorkerSafe { VectorMath.scores(query: vector, matrix: matrix, rows: rows) }
                 for (i, s) in scores.enumerated() { scoreOf[ids[i]] = s }
                 let order = scores.indices.sorted { scores[$0] > scores[$1] }
-                let best = order.first.map { scores[$0] } ?? 0
-                // e5 similarities sit in a narrow band; keep chunks close to the best one.
-                let cutoff = best - 0.06
-                semantic = order.prefix { scores[$0] >= cutoff }.prefix(300).map { (ids[$0], scores[$0]) }
+                semantic = order.prefix(50).map { (ids[$0], scores[$0]) }
             }
         }
 
-        // Words: FTS5 prefix match plus file names.
+        // Words: a document counts only when its text, name or path holds most query words
+        // (all of them for short queries). Meaning only orders these and adds a few sure hits.
+        let terms = DocumentRelevance.terms(text)
         let words = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-        let keyword = store.keywordMatches(words: words)
-        let byName = store.documentNameMatches(text)
-        let keywordSet = Set(keyword).union(byName)
+        let keyword = store.keywordMatches(words: words, limit: 1000)
+        let byName = store.documentTermMatches(terms: terms)
+        var candidates = keyword + byName
+        candidates += semantic.map(\.0)
+        var unique = Set<Int64>()
+        candidates = candidates.filter { unique.insert($0).inserted }
+        let infos = store.chunkInfo(ids: candidates)
 
-        // Reciprocal rank fusion at chunk level.
-        var fused: [Int64: Double] = [:]
-        for (rank, (id, _)) in semantic.enumerated() { fused[id, default: 0] += 1.0 / Double(60 + rank) }
-        for (rank, id) in keyword.enumerated() { fused[id, default: 0] += 1.0 / Double(60 + rank) }
-        for (rank, id) in byName.enumerated() { fused[id, default: 0] += 1.0 / Double(60 + rank) }
-        let rankedChunks = fused.sorted { $0.value > $1.value }.prefix(400).map(\.key)
+        struct Pick { let chunk: Int64; let coverage: Double; let score: Float; let textMatch: Bool }
+        var docWords: [Int64: Set<Substring>] = [:]
+        var bestChunk: [Int64: (chunk: Int64, coverage: Double, score: Float)] = [:]
+        for id in candidates {
+            guard let info = infos[id] else { continue }
+            let chunkWords = DocumentRelevance.words(info.text + " " + info.name + " " + info.path)
+            docWords[info.documentId, default: []].formUnion(chunkWords)
+            let cov = DocumentRelevance.coverage(terms: terms, in: chunkWords)
+            let score = scoreOf[id] ?? 0
+            if let cur = bestChunk[info.documentId], (cur.coverage, cur.score) >= (cov, score) { continue }
+            bestChunk[info.documentId] = (id, cov, score)
+        }
+        var picks: [Pick] = []
+        for (docId, best) in bestChunk {
+            let words = docWords[docId] ?? []
+            let isText = DocumentRelevance.isTextMatch(terms: terms, words: words)
+            picks.append(Pick(chunk: best.chunk, coverage: DocumentRelevance.coverage(terms: terms, in: words), score: best.score, textMatch: isText))
+        }
+        let textPicks = picks.filter(\.textMatch).sorted { ($0.coverage, $0.score) > ($1.coverage, $1.score) }
+        let semanticPicks = picks
+            .filter { !$0.textMatch && $0.score >= DocumentRelevance.semanticOnlyMinScore }
+            .sorted { $0.score > $1.score }
+            .prefix(DocumentRelevance.semanticOnlyLimit)
+        let ranked = textPicks + semanticPicks
 
-        // Best chunk per document.
-        let infos = store.chunkInfo(ids: rankedChunks)
-        var seen = Set<Int64>()
-        var hits: [DocumentHit] = []
         let folderById = Dictionary(folders.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for id in rankedChunks {
-            guard let info = infos[id], !seen.contains(info.documentId) else { continue }
-            seen.insert(info.documentId)
+        var hits: [DocumentHit] = []
+        for pick in ranked.prefix(30) {
+            guard let info = infos[pick.chunk] else { continue }
             let folder = folderById[info.folderId]
             let url = folder.flatMap { f in folderURL(f).map { info.path.isEmpty ? $0 : $0.appendingPathComponent(info.path) } }
             let ext = (info.name as NSString).pathExtension
             hits.append(DocumentHit(
                 id: "doc-\(info.documentId)",
                 documentId: info.documentId,
-                chunkId: id,
+                chunkId: pick.chunk,
                 folderId: info.folderId,
                 title: info.name,
                 folderName: folder?.name ?? "",
@@ -568,19 +632,18 @@ final class DocumentEngine: ObservableObject {
                 snippet: TextChunker.snippet(of: info.text, around: words),
                 page: info.page,
                 date: info.modified > 0 ? Date(timeIntervalSince1970: info.modified) : nil,
-                score: scoreOf[id] ?? 0,
-                textMatch: keywordSet.contains(id),
+                score: pick.score,
+                textMatch: pick.textMatch,
                 fileURL: url,
                 contentType: UTType(filenameExtension: ext)?.identifier
             ))
-            if hits.count >= 30 { break }
         }
         results = hits
 
         var info = ["Документы: \(hits.count)"]
         if embedder == nil { info.append("только по словам") }
         if let top = semantic.first?.1 { info.append(String(format: "лучший %.2f", top)) }
-        if !keyword.isEmpty { info.append("совпадений слов: \(keyword.count)") }
+        info.append("по словам: \(textPicks.count), по смыслу: \(semanticPicks.count)")
         info.append(String(format: "%.0f мс", (CFAbsoluteTimeGetCurrent() - start) * 1000))
         lastQueryInfo = info.joined(separator: " · ")
         log.add("Документы «\(text)»: \(lastQueryInfo ?? "")")
