@@ -22,6 +22,7 @@
 <img src="claude-project-thread-6jefsu/11-video-search.png" width="260" alt="11-video-search.png">
 <img src="claude-project-thread-6jefsu/12-video-player.png" width="260" alt="12-video-player.png">
 <img src="claude-project-thread-6jefsu/13-resume-no-docs.png" width="260" alt="13-resume-no-docs.png">
+<img src="claude-project-thread-6jefsu/14-scope-docs.png" width="260" alt="14-scope-docs.png">
 <img src="claude-project-thread-6jefsu/2-home.png" width="260" alt="2-home.png">
 <img src="claude-project-thread-6jefsu/3-search-grid.png" width="260" alt="3-search-grid.png">
 <img src="claude-project-thread-6jefsu/4-search-cards.png" width="260" alt="4-search-cards.png">
