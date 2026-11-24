@@ -260,18 +260,17 @@ final class VideoEngine: ObservableObject {
 
         let ranked = best.sorted { $0.value.score > $1.value.score }
         let top = ranked.first?.value.score ?? 0
-        let clipRanked: [Int]
+        let cutoff: Float
         if baseline.isEmpty {
             // No reference captions yet: the older raw-score rule.
             let reference = max(top, photoBest)
-            let cutoff = max(top - 0.05, top * 0.82, reference - 0.05)
-            clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
+            cutoff = max(top - 0.05, top * 0.82, reference - 0.05)
         } else if top < SearchEngine.minimumAdjusted {
-            clipRanked = []   // nothing in the videos really matches (a waterfall for «билет на поезд»)
+            cutoff = .infinity   // nothing in the videos really matches (a waterfall for «билет на поезд»)
         } else {
-            let cutoff = max(top - SearchEngine.adjustedMargin, top * 0.5)
-            clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
+            cutoff = max(top - SearchEngine.adjustedMargin, top * 0.5)
         }
+        let clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }
 
         // Words said in the video.
         let spoken = store.speechMatches(words: words).filter { allowed($0.row) }
