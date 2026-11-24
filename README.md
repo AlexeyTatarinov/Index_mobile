@@ -80,6 +80,7 @@
 <img src="integration/10-mail-search.png" width="260" alt="10-mail-search.png">
 <img src="integration/11-video-search.png" width="260" alt="11-video-search.png">
 <img src="integration/12-video-player.png" width="260" alt="12-video-player.png">
+<img src="integration/13-resume-no-docs.png" width="260" alt="13-resume-no-docs.png">
 <img src="integration/2-home.png" width="260" alt="2-home.png">
 <img src="integration/3-search-grid.png" width="260" alt="3-search-grid.png">
 <img src="integration/4-search-cards.png" width="260" alt="4-search-cards.png">
