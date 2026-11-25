@@ -35,5 +35,10 @@ enum MailDemo {
                     snippet: "Напоминаем о приёме 3 октября в 15:30",
                     body: "Напоминаем, что вы записаны к стоматологу на 3 октября в 15:30. Если не сможете прийти, предупредите заранее.",
                     labels: ["INBOX"], attachments: []),
+        MailMessage(id: "demo6", threadId: "demo6", subject: "Application for the QA Engineer position",
+                    sender: "Alexey Ivanov <alexey@example.com>", recipients: "jobs@example.com", date: day(2025, 7, 15),
+                    snippet: "Please find my CV attached",
+                    body: "Hello! I would like to apply for the QA Engineer position. Please find my CV attached. Best regards, Alexey.",
+                    labels: ["SENT"], attachments: ["CV_Alexey_Ivanov.pdf"]),
     ]
 }

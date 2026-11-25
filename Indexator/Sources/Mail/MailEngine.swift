@@ -336,7 +336,9 @@ final class MailEngine: ObservableObject {
         var vector: [Float]?
         let embedder = text.isEmpty ? nil : loadEmbedder()
         if let embedder {
-            vector = try? await Task.detached(priority: .userInitiated) { try embedder.embed(query: text) }.value
+            // Short queries carry their synonyms: «резюме» also means "CV".
+            let meaningText = QuerySynonyms.expandedText(text)
+            vector = try? await Task.detached(priority: .userInitiated) { try embedder.embed(query: meaningText) }.value
         }
         let start = Date()
         let hits = await store.search(words: words, queryVector: vector, model: embedder?.modelName, filter: parsed.dateFilter)

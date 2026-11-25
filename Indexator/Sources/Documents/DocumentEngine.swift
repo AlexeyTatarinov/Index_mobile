@@ -569,7 +569,9 @@ final class DocumentEngine: ObservableObject {
             let ids = store.vectorChunkIds
             let matrix = store.vectors
             let rows = store.vectorCount
-            if let vector = try? await onWorker({ try embedder.embed(query: text) }) {
+            // Short queries also carry their synonyms, so «резюме» lands near English CVs.
+            let meaningText = QuerySynonyms.expandedText(text)
+            if let vector = try? await onWorker({ try embedder.embed(query: meaningText) }) {
                 let scores = await onWorkerSafe { VectorMath.scores(query: vector, matrix: matrix, rows: rows) }
                 for (i, s) in scores.enumerated() { scoreOf[ids[i]] = s }
                 let order = scores.indices.sorted { scores[$0] > scores[$1] }
@@ -579,10 +581,11 @@ final class DocumentEngine: ObservableObject {
 
         // Words: a document counts only when its text, name or path holds most query words
         // (all of them for short queries). Meaning only orders these and adds a few sure hits.
-        let terms = DocumentRelevance.terms(text)
-        let words = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        let groups = DocumentRelevance.termGroups(text)
+        let ownWords = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        let words = ownWords + ownWords.flatMap { QuerySynonyms.alternatives(for: $0) }
         let keyword = store.keywordMatches(words: words, limit: 1000)
-        let byName = store.documentTermMatches(terms: terms)
+        let byName = store.documentTermMatches(terms: groups.flatMap { $0 })
         var candidates = keyword + byName
         candidates += semantic.map(\.0)
         var unique = Set<Int64>()
@@ -596,7 +599,7 @@ final class DocumentEngine: ObservableObject {
             guard let info = infos[id] else { continue }
             let chunkWords = DocumentRelevance.words(info.text + " " + info.name + " " + info.path)
             docWords[info.documentId, default: []].formUnion(chunkWords)
-            let cov = DocumentRelevance.coverage(terms: terms, in: chunkWords)
+            let cov = DocumentRelevance.coverage(groups: groups, in: chunkWords)
             let score = scoreOf[id] ?? 0
             if let cur = bestChunk[info.documentId], (cur.coverage, cur.score) >= (cov, score) { continue }
             bestChunk[info.documentId] = (id, cov, score)
@@ -604,8 +607,8 @@ final class DocumentEngine: ObservableObject {
         var picks: [Pick] = []
         for (docId, best) in bestChunk {
             let words = docWords[docId] ?? []
-            let isText = DocumentRelevance.isTextMatch(terms: terms, words: words)
-            picks.append(Pick(chunk: best.chunk, coverage: DocumentRelevance.coverage(terms: terms, in: words), score: best.score, textMatch: isText))
+            let isText = DocumentRelevance.isTextMatch(groups: groups, words: words)
+            picks.append(Pick(chunk: best.chunk, coverage: DocumentRelevance.coverage(groups: groups, in: words), score: best.score, textMatch: isText))
         }
         let textPicks = picks.filter(\.textMatch).sorted { ($0.coverage, $0.score) > ($1.coverage, $1.score) }
         let semanticPicks = picks

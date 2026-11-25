@@ -58,6 +58,12 @@ struct ResultsView: View {
                 .padding(.top, 40)
             } else {
                 content
+                Label("Удержите результат и выберите «Не подходит» или «Подходит»: поиск запомнит это для такого запроса.",
+                      systemImage: "hand.thumbsup")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
             }
         }
         .padding(.top, 4)
@@ -148,6 +154,7 @@ struct ResultsView: View {
                         ForEach(shown) { item in
                             Button { onOpen(item) } label: { TextResultCard(item: item) }
                                 .buttonStyle(.plain)
+                                .contextMenu { FeedbackMenuItems(kind: item.kind, id: item.id) }
                         }
                     }
                     .padding(.horizontal, 16)

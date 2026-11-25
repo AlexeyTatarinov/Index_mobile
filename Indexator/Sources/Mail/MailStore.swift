@@ -229,7 +229,7 @@ actor MailStore {
             return filter.matches(seconds: seconds, month: month)
         }
 
-        let terms = MailQuery.terms(from: words)
+        let terms = MailQuery.termGroups(from: words)
         // All words must be present; only when nothing has them all, any word will do.
         var textRanked = ftsMatches(terms: terms, all: true).filter(allowed)
         let allWords = !textRanked.isEmpty || terms.count < 2
@@ -292,9 +292,12 @@ actor MailStore {
 
     /// Ids whose subject/sender/body contain the terms (as prefixes), best first.
     /// bm25 weights: subject 5, sender 3, body 1.
-    private func ftsMatches(terms: [String], all: Bool) -> [String] {
+    /// Each group is one query word with its synonyms: any of them counts for that word.
+    private func ftsMatches(terms: [[String]], all: Bool) -> [String] {
         guard !terms.isEmpty else { return [] }
-        let match = terms.map { "\"\($0)\"*" }.joined(separator: all ? " AND " : " OR ")
+        let match = terms.map { group in
+            "(" + group.map { "\"\($0)\"*" }.joined(separator: " OR ") + ")"
+        }.joined(separator: all ? " AND " : " OR ")
         var ids: [String] = []
         try? withStatement("SELECT id FROM mail_fts WHERE mail_fts MATCH ? ORDER BY bm25(mail_fts, 0.0, 5.0, 3.0, 1.0) LIMIT 200") { stmt in
             bind(stmt, 1, match)

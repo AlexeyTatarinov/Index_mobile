@@ -70,7 +70,7 @@ EVAL_QUERIES=$(python3 -c 'import json;print("|".join(q["query"] for q in json.l
 EVAL_FILE="$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)/Documents/search-eval.json"
 rm -f "$EVAL_FILE"
 xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" 2>/dev/null || true
-xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab search -searchEval "$EVAL_QUERIES"
+xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -uiTab search -docsDemo YES -mailDemo YES -searchEval "$EVAL_QUERIES"
 for _ in $(seq 1 60); do [[ -s "$EVAL_FILE" ]] && break; sleep 5; done
 cp "$EVAL_FILE" "$OUT/search-eval.json" || {
   echo "no eval output after 5 minutes; app log:"

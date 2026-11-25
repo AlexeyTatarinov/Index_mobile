@@ -160,6 +160,8 @@ struct VideoMenu: View {
             Label("Открыть «Фото»", systemImage: "photo.on.rectangle")
         }
         Divider()
+        FeedbackMenuItems(kind: .video, id: id)
+        Divider()
         Button(role: .destructive) {
             Task { if await PhotoActions.delete(id: id) { onDeleted() } }
         } label: {

@@ -143,6 +143,29 @@ enum PhotoActions {
 }
 
 /// Context menu for a photo in the results.
+/// «Подходит» / «Не подходит» for a result of the current query: the search learns from it.
+struct FeedbackMenuItems: View {
+    let kind: ResultItem.Kind
+    let id: String
+    @ObservedObject private var learning = SearchLearning.shared
+
+    var body: some View {
+        let state = learning.state(kind: kind, id: id)
+        if !learning.currentQuery.isEmpty {
+            Button {
+                learning.mark(kind: kind, id: id, good: state == 1 ? nil : true)
+            } label: {
+                Label(state == 1 ? "Подходит ✓" : "Подходит к запросу", systemImage: "hand.thumbsup")
+            }
+            Button {
+                learning.mark(kind: kind, id: id, good: state == -1 ? nil : false)
+            } label: {
+                Label(state == -1 ? "Не подходит ✓" : "Не подходит к запросу", systemImage: "hand.thumbsdown")
+            }
+        }
+    }
+}
+
 struct PhotoMenu: View {
     let id: String
     let onOpen: () -> Void
@@ -169,6 +192,8 @@ struct PhotoMenu: View {
         } label: {
             Label("Открыть «Фото»", systemImage: "photo.on.rectangle")
         }
+        Divider()
+        FeedbackMenuItems(kind: .photo, id: id)
         Divider()
         Button(role: .destructive) {
             Task { if await PhotoActions.delete(id: id) { onDeleted() } }

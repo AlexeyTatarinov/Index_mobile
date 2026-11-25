@@ -30,6 +30,20 @@ for row in got["queries"]:
             problems.append(f"{f} should not be found")
     if q.get("empty") and files:
         problems.append(f"expected nothing, got {len(files)}")
+    docs = row.get("docs", [])
+    mail = row.get("mail", [])
+    for f in q.get("docs", []):
+        if f not in docs[:q.get("docsWithin", 3)]:
+            problems.append(f"document {f} not in top {q.get('docsWithin', 3)}")
+    for f in q.get("docsForbid", []):
+        if f in docs:
+            problems.append(f"document {f} should not be found")
+    for m in q.get("mail", []):
+        if m not in mail[:3]:
+            problems.append(f"email {m} not in top 3")
+    for m in q.get("mailForbid", []):
+        if m in mail:
+            problems.append(f"email {m} should not be found")
     videos = row.get("videos", 0)
     if "videos" in q and videos != q["videos"]:
         problems.append(f"expected {q['videos']} videos, got {videos}")
@@ -38,6 +52,8 @@ for row in got["queries"]:
     print(f"{mark} «{row['query']}» [{len(files)}, videos {row.get('videos', 0)} top {row.get('videoTop', 0):+.3f}] {shown}")
     if problems:
         print("     " + "; ".join(problems))
+    if docs or mail:
+        print(f"     docs: {', '.join(docs[:5]) or '-'} · mail: {', '.join(mail[:5]) or '-'}")
     print("     " + row["info"])
     if near:
         print("     ranked by adjusted score: " + near)

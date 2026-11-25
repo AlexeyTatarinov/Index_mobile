@@ -138,10 +138,41 @@ final class SearchEngine: ObservableObject {
             guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return id }
             return PHAssetResource.assetResources(for: asset).first?.originalFilename ?? id
         }
+        // With -docsDemo / -mailDemo the same queries also go to documents and mail
+        // (sample files and emails), so «резюме» is checked against a file named "CV".
+        let docsDemo = DocumentDemo.isEnabled
+        let mailDemo = UserDefaults.standard.bool(forKey: "mailDemo")
+        if docsDemo {
+            for _ in 0..<600 {
+                let docs = DocumentEngine.shared
+                if !docs.isIndexing && docs.stats.chunks >= 6 { break }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+        if mailDemo {
+            for _ in 0..<600 {
+                let mail = MailEngine.shared
+                if mail.storedCount >= MailDemo.messages.count && mail.pendingVectors == 0 && !mail.isSyncing { break }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            // Vectors of the sample emails are written right after they are stored.
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
         var report: [[String: Any]] = []
         for query in queries where !query.isEmpty {
             await search(text: query)
+            var docTitles: [String] = []
+            if docsDemo {
+                await DocumentEngine.shared.search(query)
+                docTitles = DocumentEngine.shared.results.map(\.title)
+            }
+            var mailIds: [String] = []
+            if mailDemo {
+                mailIds = await MailEngine.shared.search(query).map(\.id)
+            }
             report.append([
+                "docs": docTitles,
+                "mail": mailIds,
                 "query": query,
                 "info": lastQueryInfo ?? "",
                 "videos": VideoEngine.shared.results.count,
@@ -444,6 +475,10 @@ final class SearchEngine: ObservableObject {
             }
         }
 
+        // «видео природы»: "видео" says where to look, not what is in the picture.
+        let media = Self.stripMediaWords(modelText)
+        if !media.text.isEmpty { modelText = media.text }
+        lastWantsVideo = media.video
         let semantic = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
         log.add("Запрос «\(shownQuery)»: ищу…")
 
@@ -543,7 +578,7 @@ final class SearchEngine: ObservableObject {
             let placeWords = placeMatch?.words ?? []
             let words = (parsed.text + " " + semantic)
                 .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-                .filter { !placeWords.contains(PlaceIndex.normalize($0)) }
+                .filter { !placeWords.contains(PlaceIndex.normalize($0)) && !Self.isMediaWord($0) }
             let textRanked = words.isEmpty ? [] : database.textMatches(words: words).filter(isAllowed)
             let textSet = Set(textRanked)
 
@@ -591,9 +626,17 @@ final class SearchEngine: ObservableObject {
             }
             let top = fused.sorted { ($0.value, adjusted($0.key)) > ($1.value, adjusted($1.key)) }.prefix(90)
             results = top.map { SearchHit(id: database.ids[$0.key], score: score($0.key), textMatch: textSet.contains($0.key)) }
+            // Broad subjects («природа», «город») cover many different scenes; one caption
+            // misses most of them in video frames, so videos also try a few typical scenes.
+            let broad = Self.broadScenes(for: semantic)
+            var sceneVectors: [[Float]] = []
+            if !broad.isEmpty {
+                sceneVectors = (try? await onWorker { try broad.map { try clip.embed(text: $0) } }) ?? []
+            }
             VideoEngine.shared.search(vector: vector, words: words, dateFilter: parsed.dateFilter, photoBest: best,
                                       photoBestAdjusted: clipRanked.isEmpty ? nil : bestAdjusted,
-                                      references: referenceVectors)
+                                      references: referenceVectors, extraVectors: sceneVectors,
+                                      relaxed: media.video || !broad.isEmpty, broad: !broad.isEmpty)
 
             let done = CFAbsoluteTimeGetCurrent()
             if let via { info.insert(via, at: 0) }
@@ -684,6 +727,61 @@ final class SearchEngine: ObservableObject {
         let values = sum.map { $0 / n }
         baselineCache = (count, values)
         return values
+    }
+
+    /// The last query named videos («видео природы»): videos go first in the results.
+    @Published private(set) var lastWantsVideo = false
+
+    nonisolated static let videoWords: Set<String> = [
+        "видео", "видос", "видосы", "видосик", "ролик", "ролики", "роликов", "ролика", "видеоролик", "видеоролики",
+        "запись", "записи", "video", "videos", "clip", "clips", "movie", "movies",
+    ]
+    nonisolated static let photoWords: Set<String> = [
+        "фото", "фотки", "фотку", "фотографии", "фотография", "фотографию", "фоток", "снимки", "снимок", "снимков",
+        "картинки", "картинка", "photo", "photos", "picture", "pictures", "pic", "pics",
+    ]
+
+    nonisolated static func isMediaWord(_ word: String) -> Bool {
+        let w = word.lowercased()
+        return videoWords.contains(w) || photoWords.contains(w)
+    }
+
+    /// Removes "видео"/"фото" and the like; `video` says whether videos were asked for.
+    nonisolated static func stripMediaWords(_ text: String) -> (text: String, video: Bool) {
+        let words = text.split(separator: " ").map(String.init)
+        let video = words.contains { videoWords.contains($0.lowercased().filter(\.isLetter)) }
+        let rest = words.filter { !isMediaWord($0.filter(\.isLetter)) }
+        return (rest.joined(separator: " "), video)
+    }
+
+    /// Typical scenes for broad subjects, in English (CLIP's own language).
+    nonisolated static let broadSubjects: [(stems: [String], scenes: [String])] = [
+        (["природ", "nature"], ["a photo of nature", "a landscape with trees and mountains", "a forest", "a lake or a river",
+                                "a field with grass and flowers", "the sea and the sky"]),
+        (["животн", "animal"], ["a photo of an animal", "a pet", "a wild animal", "a bird"]),
+        (["город", "улиц", "city", "street"], ["a city street", "buildings in a city", "a town square", "a city at night"]),
+        (["еда", "еду", "еды", "блюд", "food"], ["a photo of food", "a dish on a table", "a meal in a restaurant"]),
+        (["море", "моря", "морск", "океан", "sea", "ocean"], ["the sea", "waves on the shore", "a beach"]),
+        (["пляж", "beach"], ["a beach", "people on a sandy beach", "the sea shore"]),
+        (["горы", "гора", "горах", "mountain"], ["mountains", "a mountain landscape", "a hiking trail in the mountains"]),
+        (["лес", "леса", "лесу", "forest"], ["a forest", "trees in a forest", "a path in the woods"]),
+        (["закат", "рассвет", "sunset"], ["a sunset", "a sunrise", "the evening sky"]),
+        (["снег", "зим", "snow", "winter"], ["snow", "a winter landscape", "people in the snow"]),
+        (["праздн", "вечерин", "party"], ["a party", "a celebration", "a birthday", "fireworks"]),
+        (["спорт", "sport"], ["sport", "people playing a game", "a stadium"]),
+        (["дети", "детей", "ребен", "малыш", "kids", "children"], ["a child", "children playing", "a baby"]),
+        (["путешеств", "поездк", "отпуск", "travel", "trip"], ["travel", "a trip abroad", "sightseeing", "an airport"]),
+    ]
+
+    nonisolated static func broadScenes(for text: String) -> [String] {
+        let words = PlaceIndex.normalize(text).split(separator: " ").map(String.init)
+        var scenes: [String] = []
+        for word in words {
+            for subject in broadSubjects where subject.stems.contains(where: { word == $0 || (word.hasPrefix($0) && $0.count >= 4 && word.count <= $0.count + 4) }) {
+                scenes += subject.scenes.filter { !scenes.contains($0) }
+            }
+        }
+        return Array(scenes.prefix(8))
     }
 
     nonisolated static func prompt(for text: String) -> String {

@@ -37,6 +37,27 @@ enum MailQuery {
         }
     }
 
+    /// Each query word as a group of FTS terms: the word's own stem plus its synonyms
+    /// (QuerySynonyms), so «резюме» also finds an email that only says "CV".
+    /// Two-letter acronyms typed in capitals ("CV") are kept.
+    static func termGroups(from words: [String]) -> [[String]] {
+        var seen = Set<String>()
+        return words.compactMap { raw -> [String]? in
+            let word = fold(raw.lowercased()).filter { $0.isLetter || $0.isNumber }
+            guard !stopWords.contains(word) else { return nil }
+            let isAcronym = word.count == 2 && raw.filter(\.isLetter).allSatisfy(\.isUppercase)
+            guard word.count >= 3 || isAcronym || (word.count == 2 && word.allSatisfy(\.isNumber)) else { return nil }
+            let own = stem(word)
+            guard seen.insert(own).inserted else { return nil }
+            var group = [own]
+            for alt in QuerySynonyms.alternatives(for: word) {
+                let t = stem(fold(alt).filter { $0.isLetter || $0.isNumber })
+                if t.count >= 2, !group.contains(t) { group.append(t) }
+            }
+            return group
+        }
+    }
+
     /// "ё" → "е", so "счет" finds "счёт" and back.
     static func fold(_ text: String) -> String {
         text.replacingOccurrences(of: "ё", with: "е").replacingOccurrences(of: "Ё", with: "Е")

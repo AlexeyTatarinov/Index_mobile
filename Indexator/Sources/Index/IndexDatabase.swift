@@ -248,11 +248,18 @@ final class IndexDatabase {
             .map { $0.lowercased().replacingOccurrences(of: "ё", with: "е").filter { $0.isLetter || $0.isNumber } }
             .filter { $0.count >= 2 && !Self.textStopWords.contains($0) && seen.insert($0).inserted }
         guard !terms.isEmpty else { return [] }
-        let match = terms.map { term -> String in
+        func pattern(_ term: String) -> String {
             let cyrillic = term.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
             if cyrillic && term.count >= 5 { return "\"\(PlaceIndex.stem(term))\"*" }
             if term.count >= 4 { return "\"\(term)\"*" }
             return "\"\(term)\""
+        }
+        // Each word may be found as any of its synonyms: «резюме» on a photo that says "CV".
+        let match = terms.map { term -> String in
+            let alts = QuerySynonyms.alternatives(for: term)
+                .map { $0.replacingOccurrences(of: "ё", with: "е").filter { $0.isLetter || $0.isNumber } }
+                .filter { $0.count >= 2 }
+            return "(" + ([term] + alts).map(pattern).joined(separator: " OR ") + ")"
         }.joined(separator: " AND ")
         var rows: [Int] = []
         try? withStatement("SELECT id FROM photo_text WHERE photo_text MATCH ? ORDER BY rank LIMIT ?") { stmt in
