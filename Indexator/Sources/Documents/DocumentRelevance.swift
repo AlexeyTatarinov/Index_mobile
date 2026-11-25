@@ -30,21 +30,51 @@ enum DocumentRelevance {
         Set(text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }))
     }
 
+    /// Query terms with their synonyms (QuerySynonyms): a group is found when any of
+    /// its stems starts a word of the text, so «резюме» counts in a file named "CV".
+    static func termGroups(_ query: String) -> [[String]] {
+        var seen = Set<String>()
+        return query
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { $0.lowercased() }
+            .filter { $0.count >= 2 && !DocumentStore.stopWords.contains($0) }
+            .compactMap { word -> [String]? in
+                let term = DocumentStore.stem(word)
+                guard seen.insert(term).inserted else { return nil }
+                var group = [term]
+                for alt in QuerySynonyms.alternatives(for: word) {
+                    let t = DocumentStore.stem(QuerySynonyms.normalize(alt))
+                    if t.count >= 2, !group.contains(t) { group.append(t) }
+                }
+                return group
+            }
+    }
+
+    private static func found(_ group: [String], in words: Set<Substring>) -> Bool {
+        group.contains { stem in words.contains { $0.hasPrefix(stem) } }
+    }
+
     /// Fraction of terms that start some word of the text.
     static func coverage(terms: [String], in words: Set<Substring>) -> Double {
-        guard !terms.isEmpty else { return 0 }
-        let found = terms.filter { term in words.contains { $0.hasPrefix(term) } }.count
-        return Double(found) / Double(terms.count)
+        coverage(groups: terms.map { [$0] }, in: words)
+    }
+
+    static func coverage(groups: [[String]], in words: Set<Substring>) -> Double {
+        guard !groups.isEmpty else { return 0 }
+        return Double(groups.filter { found($0, in: words) }.count) / Double(groups.count)
     }
 
     /// Whether enough of the query's words are in the text: all of them for up to
     /// four words, 80% for longer queries.
     static func isTextMatch(terms: [String], words: Set<Substring>) -> Bool {
-        guard !terms.isEmpty else { return false }
+        isTextMatch(groups: terms.map { [$0] }, words: words)
+    }
+
+    static func isTextMatch(groups: [[String]], words: Set<Substring>) -> Bool {
+        guard !groups.isEmpty else { return false }
         // ceil(80%) in integers, so five words need exactly four.
-        let needed = (terms.count * 4 + 4) / 5
-        let found = terms.filter { term in words.contains { $0.hasPrefix(term) } }.count
-        return found >= needed
+        let needed = (groups.count * 4 + 4) / 5
+        return groups.filter { found($0, in: words) }.count >= needed
     }
 
     // MARK: - Folders

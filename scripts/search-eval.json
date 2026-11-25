@@ -1,5 +1,5 @@
 {
- "comment": "Reference queries over the CI sample photos (picsum ids; see samples/ on the screenshots branch). expect: each must be in the top `within` results. forbid: must not appear. empty: nothing should be shown. Dogs: 237 black puppy, 1025 and 1062 pugs in blankets, 659 husky, 169 dachshunds. Others: 1003 fawn, 1074 lioness, 433 bear, 582 coyote, 219 leopard, 200 highland cow, 1084 walruses, 1069 jellyfish, 1080 strawberries, 1060 coffee brewing, 1011 woman in canoe on a lake, 1015 fjord, 1035 waterfall, 1043 mountains and river, 1050 sea cliffs. IMG_* are the simulator's own photos (flowers, landscapes). The simulator's Vision classifier returns the same labels for every photo, so label-based rescue (еда, природа on device) is not testable here; клубника/еда are only checked for false hits. videos: number of videos expected; the sample video (walk.mp4) has a puppy at 8-12 s between landscapes. Generated (scripts/make-text-photo.swift): cv-page (a CV, Valencia GPS), shopping-list (Valencia GPS), meeting-notes (no GPS), valencia-view (a copy of 1050 with Valencia GPS). Text-heavy photos count only when their text matches; a bare city name shows views of that place, not documents.",
+ "comment": "Reference queries over the CI sample photos (picsum ids; see samples/ on the screenshots branch). expect: each must be in the top `within` results. forbid: must not appear. empty: nothing should be shown. Dogs: 237 black puppy, 1025 and 1062 pugs in blankets, 659 husky, 169 dachshunds. Others: 1003 fawn, 1074 lioness, 433 bear, 582 coyote, 219 leopard, 200 highland cow, 1084 walruses, 1069 jellyfish, 1080 strawberries, 1060 coffee brewing, 1011 woman in canoe on a lake, 1015 fjord, 1035 waterfall, 1043 mountains and river, 1050 sea cliffs. IMG_* are the simulator's own photos (flowers, landscapes). The simulator's Vision classifier returns the same labels for every photo, so label-based rescue (еда, природа on device) is not testable here; клубника/еда are only checked for false hits. videos: number of videos expected; the sample video (walk.mp4) has a puppy at 8-12 s between landscapes. Generated (scripts/make-text-photo.swift): cv-page (a CV, Valencia GPS), shopping-list (Valencia GPS), meeting-notes (no GPS), valencia-view (a copy of 1050 with Valencia GPS). Text-heavy photos count only when their text matches; a bare city name shows views of that place, not documents. Documents and mail: the eval run also loads -docsDemo (sample files incl. 'CV Alexey Ivanov.txt', English, no word 'резюме') and -mailDemo (demo6 = English email with a CV); docs/mail list what must be in the top 3, docsForbid/mailForbid what must not appear. «видео природы»: 'видео' only says where to look; the sample video's landscapes must be found.",
  "queries": [
   {
    "query": "собака",
@@ -99,7 +99,8 @@
     "1060.jpg",
     "237.jpg",
     "1062.jpg"
-   ]
+   ],
+   "videos": 1
   },
   {
    "query": "горы и озеро",
@@ -219,7 +220,24 @@
     "shopping-list.jpg",
     "meeting-notes.jpg"
    ],
-   "videos": 0
+   "videos": 0,
+   "docs": [
+    "CV Alexey Ivanov.txt"
+   ],
+   "docsForbid": [
+    "Рецепт борща.md",
+    "Car insurance.txt",
+    "Договор аренды.pdf",
+    "Налоговый вычет.txt"
+   ],
+   "mail": [
+    "demo6"
+   ],
+   "mailForbid": [
+    "demo1",
+    "demo2",
+    "demo3"
+   ]
   },
   {
    "query": "моё резюме",
@@ -231,7 +249,24 @@
     "shopping-list.jpg",
     "meeting-notes.jpg"
    ],
-   "videos": 0
+   "videos": 0,
+   "docs": [
+    "CV Alexey Ivanov.txt"
+   ],
+   "docsForbid": [
+    "Рецепт борща.md",
+    "Car insurance.txt",
+    "Договор аренды.pdf",
+    "Налоговый вычет.txt"
+   ],
+   "mail": [
+    "demo6"
+   ],
+   "mailForbid": [
+    "demo1",
+    "demo2",
+    "demo3"
+   ]
   },
   {
    "query": "CV",
@@ -243,7 +278,24 @@
     "shopping-list.jpg",
     "meeting-notes.jpg"
    ],
-   "videos": 0
+   "videos": 0,
+   "docs": [
+    "CV Alexey Ivanov.txt"
+   ],
+   "docsForbid": [
+    "Рецепт борща.md",
+    "Car insurance.txt",
+    "Договор аренды.pdf",
+    "Налоговый вычет.txt"
+   ],
+   "mail": [
+    "demo6"
+   ],
+   "mailForbid": [
+    "demo1",
+    "demo2",
+    "demo3"
+   ]
   },
   {
    "query": "список покупок",
@@ -269,6 +321,68 @@
     "meeting-notes.jpg"
    ],
    "videos": 0
+  },
+  {
+   "query": "видео природы",
+   "videos": 1,
+   "forbid": [
+    "237.jpg",
+    "1060.jpg",
+    "cv-page.jpg",
+    "shopping-list.jpg",
+    "meeting-notes.jpg"
+   ]
+  },
+  {
+   "query": "видео собаки",
+   "videos": 1
+  },
+  {
+   "query": "видео попугая",
+   "videos": 0
+  },
+  {
+   "query": "resume",
+   "expect": [
+    "cv-page.jpg"
+   ],
+   "within": 3,
+   "docs": [
+    "CV Alexey Ivanov.txt"
+   ],
+   "docsForbid": [
+    "Рецепт борща.md",
+    "Car insurance.txt",
+    "Договор аренды.pdf",
+    "Налоговый вычет.txt"
+   ],
+   "mail": [
+    "demo6"
+   ],
+   "forbid": [
+    "shopping-list.jpg",
+    "meeting-notes.jpg"
+   ]
+  },
+  {
+   "query": "договор",
+   "docs": [
+    "Договор аренды.pdf"
+   ],
+   "docsForbid": [
+    "Рецепт борща.md",
+    "CV Alexey Ivanov.txt"
+   ]
+  },
+  {
+   "query": "contract",
+   "docs": [
+    "Договор аренды.pdf"
+   ],
+   "docsForbid": [
+    "Рецепт борща.md",
+    "CV Alexey Ivanov.txt"
+   ]
   }
  ]
 }

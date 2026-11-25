@@ -15,6 +15,7 @@ struct SearchView: View {
     @ObservedObject private var docs = DocumentEngine.shared
     @ObservedObject private var mail = MailEngine.shared
     @ObservedObject private var video = VideoEngine.shared
+    @ObservedObject private var learning = SearchLearning.shared
     @State private var openedVideo: ResultItem?
     @State private var openedMail: ResultItem?
     @State private var previewURL: URL?
@@ -25,6 +26,8 @@ struct SearchView: View {
     @State private var opened: ResultItem?
     @State private var albumFor: ResultItem?
     @State private var hidden: Set<String> = []
+    /// What dictation put in the field, to learn from the user's corrections.
+    @State private var heardText: String?
     @State private var didAutoOpen = false
     @State private var submittedQuery = UserDefaults.standard.string(forKey: "autoQuery") ?? ""
     @AppStorage("ui.searchScope") private var scope: SearchScope = .all
@@ -43,7 +46,10 @@ struct SearchView: View {
         let videos = video.results
             .filter { !settings.isExcluded(photoId: $0.id) && !hidden.contains($0.id) }
             .map(ResultItem.init(video:))
-        return (documents + emails + Self.mergeByScore(photos, videos)).filter { scope.includes($0.kind) }
+        // «видео природы»: the videos first, then the photos.
+        let media = engine.lastWantsVideo ? videos + photos : Self.mergeByScore(photos, videos)
+        let all = (documents + emails + media).filter { scope.includes($0.kind) }
+        return learning.apply(to: all, query: submittedQuery, extraPhotos: { ResultItem(photo: SearchHit(id: $0, score: 0, textMatch: false)) })
     }
 
     /// Photos and videos in one list: a video goes before the first photo it beats.
@@ -243,7 +249,12 @@ struct SearchView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         searchFocused = false
+        if let heard = heardText {
+            VoiceFixes.learn(heard: heard, sent: trimmed)
+            heardText = nil
+        }
         submittedQuery = trimmed
+        learning.currentQuery = trimmed
         settings.remember(query: trimmed)
         submit(trimmed)
         // The query moves to the bar above the results; the field is free for the next one.
@@ -255,6 +266,7 @@ struct SearchView: View {
         searchFocused = false
         speech.toggle { text in
             query = text
+            heardText = text
             // Open the keyboard on the heard text, so it can be fixed before sending.
             searchFocused = true
         }
@@ -265,6 +277,7 @@ struct SearchView: View {
     private func send() {
         if speech.isRecording {
             let heard = speech.stop()
+            heardText = nil
             run(query: heard.isEmpty ? query : heard)
         } else {
             run(query: query)
@@ -274,6 +287,7 @@ struct SearchView: View {
     /// Runs the query only in the sources the scope covers.
     private func submit(_ text: String) {
         guard !text.isEmpty else { return }
+        learning.currentQuery = text
         if scope.includes(.document) { Task { await DocumentEngine.shared.search(text) } }
         if scope.includes(.mail) && mail.consentGiven { Task { await mail.search(text) } }
         if scope.includes(.photo) { Task { await engine.search(text: text) } }

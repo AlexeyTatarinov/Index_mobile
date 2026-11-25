@@ -81,6 +81,16 @@ struct SettingsView: View {
                     Text("Распознавание текста позволяет найти чеки, документы и скриншоты по словам на них.")
                 }
 
+                Section {
+                    NavigationLink {
+                        LearningSettingsView()
+                    } label: {
+                        Label("Обучение поиска", systemImage: "brain")
+                    }
+                } footer: {
+                    Text("Отметки «подходит / не подходит», свои синонимы и исправления голосового ввода. Всё хранится только на телефоне.")
+                }
+
                 Section("Исключения") {
                     NavigationLink {
                         AlbumExclusionsView()

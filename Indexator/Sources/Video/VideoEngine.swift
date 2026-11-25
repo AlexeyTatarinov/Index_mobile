@@ -234,13 +234,22 @@ final class VideoEngine: ObservableObject {
 
     /// `references` are the neutral-caption vectors photo search uses: each frame's average
     /// similarity to them is subtracted, the same "matches anything" correction as for photos.
+    /// `extraVectors`: typical scenes of a broad subject («природа»: forest, lake, mountains);
+    /// a frame counts by its best one. `relaxed`: the query asked for videos or a broad subject,
+    /// so videos are not held to the best photo's score (frames of a walk in the woods score
+    /// lower than a postcard landscape photo, and «видео природы» showed nothing).
     func search(vector: [Float], words: [String], dateFilter: DateFilter?, photoBest: Float,
-                photoBestAdjusted: Float? = nil, references: [[Float]] = []) {
+                photoBestAdjusted: Float? = nil, references: [[Float]] = [],
+                extraVectors: [[Float]] = [], relaxed: Bool = false, broad: Bool = false) {
         lastTop = 0
         guard enabled, let store, store.count > 0 else { return clearResults() }
         let videos = store.count
         let frameRows = min(store.frameCount, store.frameVideo.count, store.frameTime.count)
         var scores = VectorMath.scores(query: vector, matrix: store.frameVectors, rows: frameRows)
+        for extra in extraVectors where extra.count == vector.count {
+            let s = VectorMath.scores(query: extra, matrix: store.frameVectors, rows: frameRows)
+            for i in 0..<min(scores.count, s.count) where s[i] > scores[i] { scores[i] = s[i] }
+        }
         let baseline = frameBaselines(references: references, rows: frameRows)
         if baseline.count == scores.count {
             for i in scores.indices { scores[i] -= baseline[i] }
@@ -273,9 +282,15 @@ final class VideoEngine: ObservableObject {
         } else {
             // A video must match about as well as the photos shown for the same query: lemurs came
             // up for «попугай» next to real parrot photos. With no photo match, a stricter floor.
-            let floor = photoBestAdjusted.map { max(SearchEngine.minimumAdjusted, $0 - Self.photoMargin) }
-                ?? SearchEngine.minimumAdjusted + 0.01
-            cutoff = top < floor ? .infinity : max(top - SearchEngine.adjustedMargin, top * 0.5, floor)
+            if relaxed {
+                // Asked for videos or a broad subject: a fixed floor, and a wider band under the best.
+                let floor = SearchEngine.minimumAdjusted + (broad ? 0 : 0.005)
+                cutoff = top < floor ? .infinity : max(top - 0.06, top * 0.4, floor)
+            } else {
+                let floor = photoBestAdjusted.map { max(SearchEngine.minimumAdjusted, $0 - Self.photoMargin) }
+                    ?? SearchEngine.minimumAdjusted + 0.01
+                cutoff = top < floor ? .infinity : max(top - SearchEngine.adjustedMargin, top * 0.5, floor)
+            }
         }
         lastTop = top
         let clipRanked = ranked.prefix { $0.value.score >= cutoff }.prefix(100).map { $0.key }

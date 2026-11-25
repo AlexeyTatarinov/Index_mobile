@@ -50,6 +50,11 @@ enum DocumentDemo {
         План поездки: Рим — 3 дня, Флоренция — 2 дня, Венеция — 2 дня. \
         Билеты на поезд Trenitalia купить заранее. Страховка для визы Шенген оформлена до 15 августа.
         """),
+        ("CV Alexey Ivanov.txt", """
+        Curriculum Vitae. Alexey Ivanov, QA Engineer. Experience: 2019-2024 game and VR testing, \
+        test automation in Python, bug tracking in Jira. Education: Moscow State University, 2015. \
+        Languages: Russian (native), English (B2), Spanish (A2).
+        """),
         ("Car insurance.txt", """
         Vehicle insurance policy renewal. The comprehensive coverage includes theft, fire and collision. \
         Annual premium is due on March 1st. Contact the agent to update the driver list.
