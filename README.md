@@ -47,6 +47,23 @@
 <img src="claude-project-thread-7owvig/8-docs-search.png" width="260" alt="8-docs-search.png">
 <img src="claude-project-thread-7owvig/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
 
+## claude-project-thread-h6pugv
+
+<img src="claude-project-thread-h6pugv/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
+<img src="claude-project-thread-h6pugv/10-mail-search.png" width="260" alt="10-mail-search.png">
+<img src="claude-project-thread-h6pugv/11-video-search.png" width="260" alt="11-video-search.png">
+<img src="claude-project-thread-h6pugv/12-video-player.png" width="260" alt="12-video-player.png">
+<img src="claude-project-thread-h6pugv/13-resume-no-docs.png" width="260" alt="13-resume-no-docs.png">
+<img src="claude-project-thread-h6pugv/14-scope-docs.png" width="260" alt="14-scope-docs.png">
+<img src="claude-project-thread-h6pugv/2-home.png" width="260" alt="2-home.png">
+<img src="claude-project-thread-h6pugv/3-search-grid.png" width="260" alt="3-search-grid.png">
+<img src="claude-project-thread-h6pugv/4-search-cards.png" width="260" alt="4-search-cards.png">
+<img src="claude-project-thread-h6pugv/5-detail.png" width="260" alt="5-detail.png">
+<img src="claude-project-thread-h6pugv/6-search-date.png" width="260" alt="6-search-date.png">
+<img src="claude-project-thread-h6pugv/7-settings.png" width="260" alt="7-settings.png">
+<img src="claude-project-thread-h6pugv/8-docs-search.png" width="260" alt="8-docs-search.png">
+<img src="claude-project-thread-h6pugv/9-docs-search-en.png" width="260" alt="9-docs-search-en.png">
+
 ## claude-project-thread-sp7d9g
 
 <img src="claude-project-thread-sp7d9g/1-settings-indexing.png" width="260" alt="1-settings-indexing.png">
